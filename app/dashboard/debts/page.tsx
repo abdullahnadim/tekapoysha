@@ -40,12 +40,15 @@ export default function DebtsPage() {
         } as Debt));
         
         // Sort: Pending first, then by date (newest first)
-        fetchedDebts.sort((a, b) => {
-          if (a.status === b.status) {
-            return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
-          }
-          return a.status === "pending" ? -1 : 1;
-        });
+fetchedDebts.sort((a, b) => {
+  if (a.status === b.status) {
+    // Safely get time whether it's a Timestamp or a Date string
+    const timeA = (a.dueDate as any)?.toDate ? (a.dueDate as any).toDate().getTime() : new Date(a.dueDate).getTime();
+    const timeB = (b.dueDate as any)?.toDate ? (b.dueDate as any).toDate().getTime() : new Date(b.dueDate).getTime();
+    return timeB - timeA;
+  }
+  return a.status === "pending" ? -1 : 1;
+});
 
         setDebts(fetchedDebts);
       } catch (error) {
@@ -197,8 +200,8 @@ export default function DebtsPage() {
                     ৳ {debt.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
-                    {new Date(debt.dueDate).toLocaleDateString('en-GB')}
-                  </td>
+  {new Date((debt.dueDate as any)?.toDate ? (debt.dueDate as any).toDate() : debt.dueDate).toLocaleDateString('en-GB')}
+</td>
                   <td className="px-6 py-4 text-sm">
                     {debt.status === "pending" ? (
                       <button 
