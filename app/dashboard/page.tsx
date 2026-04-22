@@ -47,11 +47,12 @@ export default function Dashboard() {
         });
 
         // 3. Sort transactions by date (newest first)
-        fetchedTransactions.sort((a, b) => {
-          const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-          const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-          return dateB.getTime() - dateA.getTime();
-        });
+fetchedTransactions.sort((a, b) => {
+  // Use "as any" to bypass the strict check and verify .toDate existence
+  const dateA = (a.date as any)?.toDate ? (a.date as any).toDate() : new Date(a.date);
+  const dateB = (b.date as any)?.toDate ? (b.date as any).toDate() : new Date(b.date);
+  return dateB.getTime() - dateA.getTime();
+});
 
         setTransactions(fetchedTransactions);
         setBalances(newBalances);
@@ -127,7 +128,7 @@ export default function Dashboard() {
                   <div>
                     <p className="font-medium text-gray-900">{txn.category}</p>
                     <p className="text-sm text-gray-500">
-  {txn.account} • {new Date(txn.date?.toDate ? txn.date.toDate() : txn.date).toLocaleDateString('en-GB')}
+  {txn.account} • {new Date((txn.date as any)?.toDate ? (txn.date as any).toDate() : txn.date).toLocaleDateString('en-GB')}
 </p>
                   </div>
                 </div>
