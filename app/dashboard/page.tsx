@@ -48,7 +48,9 @@ export default function Dashboard() {
 
         // 3. Sort transactions by date (newest first)
         fetchedTransactions.sort((a, b) => {
-          return new Date(b.date.toDate()).getTime() - new Date(a.date.toDate()).getTime();
+          const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+          const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+          return dateB.getTime() - dateA.getTime();
         });
 
         setTransactions(fetchedTransactions);
@@ -125,8 +127,8 @@ export default function Dashboard() {
                   <div>
                     <p className="font-medium text-gray-900">{txn.category}</p>
                     <p className="text-sm text-gray-500">
-                      {txn.account} • {new Date(txn.date.toDate()).toLocaleDateString('en-GB')}
-                    </p>
+  {txn.account} • {new Date(txn.date?.toDate ? txn.date.toDate() : txn.date).toLocaleDateString('en-GB')}
+</p>
                   </div>
                 </div>
                 <div className="text-right">
