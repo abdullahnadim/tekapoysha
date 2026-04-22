@@ -123,7 +123,7 @@ fetchedTransactions.sort((a, b) => {
               <div key={txn.id} className="flex justify-between items-center p-4 hover:bg-gray-50 rounded-lg transition-colors border border-gray-50">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${txn.type === 'income' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                    {txn.type === 'income' ? '↓' : '↑'}
+                    {txn.type === 'income' ? 'np↓' : '↑'}
                   </div>
                   <div>
                     <p className="font-medium text-gray-900">{txn.category}</p>
