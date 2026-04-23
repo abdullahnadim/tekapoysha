@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthContext";
 
@@ -24,8 +25,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             
             {/* LOGO & LINKS */}
             <div className="flex items-center gap-8">
-              <Link href="/dashboard" className="text-xl font-black tracking-tighter transition-opacity hover:opacity-80">
-                <span className="text-blue-600">Teka</span><span className="text-gray-900">Poysha</span>
+              
+              {/* LOGO AND TEXT SIDE-BY-SIDE */}
+              <Link href="/dashboard" className="flex items-center gap-3 transition-opacity hover:opacity-80">
+                <Image 
+                  src="/tekapoysha-logo.png" 
+                  alt="TekaPoysha Logo" 
+                  width={32} 
+                  height={32} 
+                  className="h-8 w-8 object-contain" 
+                  priority 
+                />
+                <div className="text-xl font-black tracking-tighter hidden sm:block">
+                  <span className="text-blue-600">Teka</span><span className="text-gray-900">Poysha</span>
+                </div>
               </Link>
               
               {/* Desktop Menu */}
@@ -46,7 +59,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
 
-            {/* --- NEW CLICKABLE PROFILE PILL --- */}
+            {/* CLICKABLE PROFILE PILL */}
             <Link 
               href="/dashboard/settings" 
               className="flex items-center gap-3 p-1.5 pr-4 rounded-full border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group"
