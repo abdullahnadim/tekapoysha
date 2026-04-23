@@ -1,34 +1,28 @@
 "use client";
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { Transaction } from "@/types"; // <-- THE FIX: Import your official global type!
 
-// 1. Define the colors for our categories (Tailwind defaults)
+// Define the colors for our categories
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"];
 
-// 2. Define the shape of our data
-interface Transaction {
-  id: string;
-  amount: number;
-  category: string;
-  type: "income" | "expense";
-}
+// Notice we deleted the local 'interface Transaction' block here.
 
 export default function SpendingChart({ transactions }: { transactions: Transaction[] }) {
-  // 3. Mathematical Magic: Filter only expenses and group them by category
+  
   const expenseData = transactions
     .filter((t) => t.type === "expense")
     .reduce((acc: any[], curr) => {
       const existingCategory = acc.find((item) => item.name === curr.category);
       if (existingCategory) {
-        existingCategory.value += curr.amount;
+        existingCategory.value += Number(curr.amount); // Added Number() to be extra safe with TS
       } else {
-        acc.push({ name: curr.category, value: curr.amount });
+        acc.push({ name: curr.category, value: Number(curr.amount) });
       }
       return acc;
     }, [])
-    .sort((a, b) => b.value - a.value); // Sort biggest expenses first
+    .sort((a, b) => b.value - a.value); 
 
-  // 4. Custom Tooltip for that premium SaaS feel
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -41,7 +35,6 @@ export default function SpendingChart({ transactions }: { transactions: Transact
     return null;
   };
 
-  // 5. Empty State (If they haven't spent anything yet)
   if (expenseData.length === 0) {
     return (
       <div className="h-64 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
@@ -51,7 +44,6 @@ export default function SpendingChart({ transactions }: { transactions: Transact
     );
   }
 
-  // 6. The Chart UI
   return (
     <div className="h-72 w-full mt-4">
       <ResponsiveContainer width="100%" height="100%">
@@ -60,7 +52,7 @@ export default function SpendingChart({ transactions }: { transactions: Transact
             data={expenseData}
             cx="50%"
             cy="50%"
-            innerRadius={60} // This makes it a Donut instead of a solid Pie
+            innerRadius={60} 
             outerRadius={80}
             paddingAngle={5}
             dataKey="value"
