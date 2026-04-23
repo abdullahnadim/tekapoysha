@@ -27,6 +27,12 @@ export default function DebtsPage() {
   // Form States
   const [newDebt, setNewDebt] = useState({ person: "", type: "receivable", totalAmount: "", dueDate: "" });
   const [paymentAmount, setPaymentAmount] = useState("");
+  
+  // NEW: Account Selectors so it knows where to add/subtract the money!
+  const [debtAccount, setDebtAccount] = useState("Cash");
+  const [paymentAccount, setPaymentAccount] = useState("Cash");
+
+  const [syncToDashboard, setSyncToDashboard] = useState(true);
 
   // --- REAL-TIME FIREBASE CONNECTION ---
   useEffect(() => {
@@ -41,23 +47,39 @@ export default function DebtsPage() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- SAFE CALCULATIONS (Protects against old database records) ---
+  // --- SAFE CALCULATIONS ---
   const totalReceivable = debts.filter(d => d.type === "receivable").reduce((sum, d) => sum + ((Number(d.totalAmount) || 0) - (Number(d.amountPaid) || 0)), 0);
   const totalPayable = debts.filter(d => d.type === "payable").reduce((sum, d) => sum + ((Number(d.totalAmount) || 0) - (Number(d.amountPaid) || 0)), 0);
 
-  // --- HANDLERS ---
+  // --- HANDLERS (Now with Auto-Sync to Dashboard!) ---
   const handleCreateDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     try {
+      // 1. Create the Debt Record
       await addDoc(collection(db, "debts"), {
         ...newDebt,
         totalAmount: Number(newDebt.totalAmount),
         amountPaid: 0,
         userId: user.uid,
       });
+
+      // 2. ONLY AUTO-SYNC IF CHECKED!
+      if (syncToDashboard) {
+        await addDoc(collection(db, "transactions"), {
+          userId: user.uid,
+          amount: Number(newDebt.totalAmount),
+          type: newDebt.type === "payable" ? "income" : "expense",
+          category: newDebt.type === "payable" ? "Loan Received" : "Loan Given",
+          account: debtAccount,
+          date: new Date(),
+          description: `Debt record: ${newDebt.person}`
+        });
+      }
+
       setIsCreateOpen(false);
       setNewDebt({ person: "", type: "receivable", totalAmount: "", dueDate: "" });
+      setSyncToDashboard(true); // Reset for next time
     } catch (error) {
       console.error("Error creating record:", error);
     }
@@ -65,15 +87,30 @@ export default function DebtsPage() {
 
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     const targetDebt = debts.find(d => d.id === paymentDebtId);
     if (!targetDebt || !paymentDebtId) return;
 
     try {
+      // 1. Update the Debt Progress
       const debtRef = doc(db, "debts", paymentDebtId);
       const currentPaid = Number(targetDebt.amountPaid) || 0;
       await updateDoc(debtRef, {
         amountPaid: currentPaid + Number(paymentAmount)
       });
+
+      // 2. AUTO-SYNC: Log the payment on your Dashboard!
+      await addDoc(collection(db, "transactions"), {
+        userId: user.uid,
+        amount: Number(paymentAmount),
+        // If paying back a payable, it's Expense. If receiving a receivable, it's Income.
+        type: targetDebt.type === "payable" ? "expense" : "income",
+        category: targetDebt.type === "payable" ? "Debt Repayment" : "Debt Collected",
+        account: paymentAccount,
+        date: new Date(),
+        description: `Payment to/from ${targetDebt.person}`
+      });
+
       setPaymentDebtId(null);
       setPaymentAmount("");
     } catch (error) {
@@ -82,7 +119,7 @@ export default function DebtsPage() {
   };
 
   const handleDeleteDebt = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this record?")) return;
+    if (!window.confirm("Are you sure you want to delete this record? (Note: Related transactions on the dashboard must be deleted manually)")) return;
     try {
       await deleteDoc(doc(db, "debts", id));
     } catch (error) {
@@ -122,7 +159,6 @@ export default function DebtsPage() {
         {/* DEBT GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {debts.map((debt) => {
-            // SAFE FALLBACKS FOR OLD DATA
             const isReceivable = debt.type === "receivable";
             const paid = Number(debt.amountPaid) || 0;
             const total = Number(debt.totalAmount) || 0;
@@ -148,12 +184,8 @@ export default function DebtsPage() {
                     <p className="text-sm text-gray-500 font-medium mt-1">paid of ৳ {total.toLocaleString('en-IN')}</p>
                   </div>
 
-                  {/* Progress Bar */}
                   <div className="w-full bg-gray-100 rounded-full h-3 mb-2 mt-5 overflow-hidden">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-1000 ease-out ${isReceivable ? 'bg-green-500' : 'bg-red-500'}`} 
-                      style={{ width: `${progress}%` }}
-                    ></div>
+                    <div className={`h-full rounded-full transition-all duration-1000 ease-out ${isReceivable ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${progress}%` }}></div>
                   </div>
                   <div className="flex justify-between text-xs font-bold mb-6">
                     <span className="text-gray-400">Due: {debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'N/A'}</span>
@@ -162,14 +194,9 @@ export default function DebtsPage() {
                 </div>
 
                 {progress >= 100 && total > 0 ? (
-                  <div className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-center">
-                    Fully Settled ✓
-                  </div>
+                  <div className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-center">Fully Settled ✓</div>
                 ) : (
-                  <button 
-                    onClick={() => setPaymentDebtId(debt.id)}
-                    className="w-full py-3 border-2 border-gray-100 text-gray-700 font-bold rounded-xl hover:border-gray-900 hover:text-gray-900 transition-colors"
-                  >
+                  <button onClick={() => setPaymentDebtId(debt.id)} className="w-full py-3 border-2 border-gray-100 text-gray-700 font-bold rounded-xl hover:border-gray-900 hover:text-gray-900 transition-colors">
                     Log Partial Payment
                   </button>
                 )}
@@ -191,8 +218,8 @@ export default function DebtsPage() {
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Record Type</label>
                   <select value={newDebt.type} onChange={e => setNewDebt({...newDebt, type: e.target.value as any})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
-                    <option value="receivable">They owe me money (Receivable)</option>
-                    <option value="payable">I owe them money (Payable)</option>
+                    <option value="receivable">They owe me money (Lending / Expense)</option>
+                    <option value="payable">I owe them money (Borrowing / Income)</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -201,9 +228,31 @@ export default function DebtsPage() {
                     <input type="number" required value={newDebt.totalAmount} onChange={e => setNewDebt({...newDebt, totalAmount: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Due Date</label>
-                    <input type="date" required value={newDebt.dueDate} onChange={e => setNewDebt({...newDebt, dueDate: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Select Account</label>
+                    <select value={debtAccount} onChange={e => setDebtAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
+                      <option value="Cash">Cash</option>
+                      <option value="Bank">Bank</option>
+                      <option value="bKash">bKash</option>
+                    </select>
                   </div>
+                </div>
+                <div>
+                  <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl mt-4 mb-4">
+                  <input 
+                    type="checkbox" 
+                    id="syncCheck"
+                    checked={syncToDashboard}
+                    onChange={(e) => setSyncToDashboard(e.target.checked)}
+                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="syncCheck" className="text-sm font-bold text-blue-900 cursor-pointer">
+                    Sync to Dashboard Balances
+                    <span className="block text-xs font-medium text-blue-700 mt-0.5">Uncheck if you already spent this money previously.</span>
+                  </label>
+                </div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Due Date</label>
+                  
+                  <input type="date" required value={newDebt.dueDate} onChange={e => setNewDebt({...newDebt, dueDate: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
                 </div>
                 <div className="flex gap-4 mt-6">
                   <button type="button" onClick={() => setIsCreateOpen(false)} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Cancel</button>
@@ -219,11 +268,18 @@ export default function DebtsPage() {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
               <h2 className="text-2xl font-bold mb-6 text-gray-900">Log Payment</h2>
-              <p className="text-sm text-gray-500 mb-4">How much was paid back?</p>
               <form onSubmit={handleAddPayment} className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Amount (৳)</label>
                   <input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none text-xl font-bold" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Account Used</label>
+                  <select value={paymentAccount} onChange={e => setPaymentAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
+                    <option value="Cash">Cash</option>
+                    <option value="Bank">Bank</option>
+                    <option value="bKash">bKash</option>
+                  </select>
                 </div>
                 <div className="flex gap-4 mt-6">
                   <button type="button" onClick={() => setPaymentDebtId(null)} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Cancel</button>
