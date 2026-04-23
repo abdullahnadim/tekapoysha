@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"] });
 // 1. ADD THE MANIFEST LINK HERE 👇
 export const metadata: Metadata = {
   title: "TekaPoysha",
-  description: "Personal financial command center",
+  description: "A genuine maal to save your shits",
   manifest: "/manifest.json", 
   appleWebApp: {
     capable: true,

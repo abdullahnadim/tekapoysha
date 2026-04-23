@@ -7,8 +7,6 @@ import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { Transaction } from "@/types";
-
-// 👇 NEW: Imported your Spending Chart component
 import SpendingChart from "@/components/dashboard/SpendingChart"; 
 
 export default function Dashboard() {
@@ -22,6 +20,20 @@ export default function Dashboard() {
   });
 
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
+
+  // 👇 NEW: States for our Dual-Mode Filter
+  const [filterMode, setFilterMode] = useState<"month" | "date">("month");
+  
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    // Formats as "YYYY-MM-DD" which is required by the HTML date input
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  });
 
   const formatDateForInput = (dateObj: any) => {
     if (!dateObj) return "";
@@ -59,9 +71,9 @@ export default function Dashboard() {
 
   // --- REAL-TIME LISTENER ---
   useEffect(() => {
-    if (!user) {
+    if (!user || !user.uid) {
       setLoading(false); 
-      router.push("/"); 
+      if (!user) router.push("/"); 
       return; 
     }
 
@@ -75,6 +87,7 @@ export default function Dashboard() {
         fetched.push({ id: doc.id, ...data } as Transaction);
         const amount = Number(data.amount);
         
+        // Balances calculate from ALL lifetime data
         if (data.type === "income") {
           const acc = data.account as keyof typeof newBalances;
           newBalances[acc] = (newBalances[acc] || 0) + amount;
@@ -103,8 +116,23 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user, router]); 
 
+
+  // 👇 NEW: Dynamic Dual-Mode Filtering Logic 👇
+  const filteredTransactions = transactions.filter(txn => {
+    if (!txn.date) return false;
+    const dateObj = (txn.date as any)?.toDate ? (txn.date as any).toDate() : new Date(txn.date);
+    
+    if (filterMode === "month") {
+      const txnMonth = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+      return txnMonth === selectedMonth;
+    } else {
+      const txnExactDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+      return txnExactDate === selectedDate;
+    }
+  });
+
+
   // --- UI RENDERING ---
-  
   if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading Teka Poysha...</div>;
 
   if (!user) {
@@ -125,10 +153,39 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* HEADER SECTION */}
-        <div>
-          <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Overview</h2>
-          <p className="text-gray-500 mt-1">Manage your accounts and transactions.</p>
+        {/* HEADER & DUAL-MODE FILTER UI */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+          <div>
+            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Overview</h2>
+            <p className="text-gray-500 mt-1">Manage your accounts and transactions.</p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <select 
+              value={filterMode}
+              onChange={(e) => setFilterMode(e.target.value as "month" | "date")}
+              className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white shadow-sm font-bold text-gray-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer"
+            >
+              <option value="month">Monthly View</option>
+              <option value="date">Exact Date View</option>
+            </select>
+
+            {filterMode === "month" ? (
+              <input 
+                type="month" 
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white shadow-sm font-bold text-gray-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer transition-all w-full sm:w-auto"
+              />
+            ) : (
+              <input 
+                type="date" 
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white shadow-sm font-bold text-gray-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer transition-all w-full sm:w-auto"
+              />
+            )}
+          </div>
         </div>
 
         {/* BALANCES SECTION */}
@@ -147,30 +204,35 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 👇 NEW: DATA VISUALIZATION & TRANSACTIONS GRID 👇 */}
+        {/* CHART & TRANSACTIONS GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* LEFT SIDE: SPENDING CHART CARD (Takes up 1 column on desktop) */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 lg:col-span-1 flex flex-col">
             <h3 className="font-bold text-gray-900 mb-1">Spending Breakdown</h3>
-            <p className="text-xs text-gray-500 mb-4">Where your money went.</p>
+            <p className="text-xs text-gray-500 mb-4">
+              Where your money went {filterMode === "month" ? "this month" : "on this date"}.
+            </p>
             <div className="flex-1">
-              <SpendingChart transactions={transactions} />
+              <SpendingChart transactions={filteredTransactions} />
             </div>
           </div>
 
-          {/* RIGHT SIDE: TRANSACTIONS LIST (Takes up 2 columns on desktop) */}
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden lg:col-span-2">
             <div className="p-6 border-b border-gray-50 flex justify-between items-center">
-              <h3 className="font-bold text-gray-900">Recent Activity</h3>
-              <Link href="/dashboard/add" className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 transition-all">+ Add New</Link>
+              <h3 className="font-bold text-gray-900">
+                {filterMode === "month" ? "Monthly" : "Daily"} Activity
+              </h3>
+              <Link href="/dashboard/add" className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-sm">+ Add New</Link>
             </div>
 
-            <div className="divide-y divide-gray-50">
-              {transactions.length === 0 ? (
-                <p className="p-10 text-center text-gray-400">No data found.</p>
+            <div className="divide-y divide-gray-50 h-96 overflow-y-auto">
+              {filteredTransactions.length === 0 ? (
+                <div className="p-12 text-center flex flex-col items-center justify-center">
+                  <span className="text-4xl mb-3">👻</span>
+                  <p className="text-gray-500 font-medium">No transactions found for this selection.</p>
+                </div>
               ) : (
-                transactions.slice(0, 10).map((txn) => (
+                filteredTransactions.map((txn) => (
                   <div key={txn.id} className="p-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${txn.type === 'income' ? 'bg-green-50 text-green-600' : txn.type === 'transfer' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
@@ -200,7 +262,6 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        {/* 👆 END OF GRID 👆 */}
 
         {/* EDIT MODAL */}
         {editingTxn && (
@@ -211,8 +272,8 @@ export default function Dashboard() {
                 <input type="number" value={editingTxn.amount} onChange={(e) => setEditingTxn({...editingTxn, amount: Number(e.target.value)})} className="w-full p-4 rounded-2xl border bg-gray-50 outline-none focus:border-blue-500" placeholder="Amount" />
                 <input type="text" value={editingTxn.description} onChange={(e) => setEditingTxn({...editingTxn, description: e.target.value})} className="w-full p-4 rounded-2xl border bg-gray-50 outline-none focus:border-blue-500" placeholder="Description" />
                 <div className="flex gap-4">
-                  <button type="button" onClick={() => setEditingTxn(null)} className="flex-1 p-4 rounded-2xl bg-gray-100 font-bold">Cancel</button>
-                  <button type="submit" className="flex-1 p-4 rounded-2xl bg-blue-600 text-white font-bold">Save</button>
+                  <button type="button" onClick={() => setEditingTxn(null)} className="flex-1 p-4 rounded-2xl bg-gray-100 font-bold text-gray-700 hover:bg-gray-200 transition-colors">Cancel</button>
+                  <button type="submit" className="flex-1 p-4 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors">Save</button>
                 </div>
               </form>
             </div>
