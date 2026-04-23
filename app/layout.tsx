@@ -1,20 +1,31 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthContext";
 
+const inter = Inter({ subsets: ["latin"] });
+
+// 1. ADD THE MANIFEST LINK HERE 👇
 export const metadata: Metadata = {
-  title: "Teka Poysha | A genuine jinish for your essential tasks",
-  description: "Track your bank, cash, and bKash transactions cleanly and securely.",
+  title: "TekaPoysha",
+  description: "Personal financial command center",
+  manifest: "/manifest.json", 
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "TekaPoysha",
+  },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+// 2. ADD THE THEME COLOR HERE 👇
+export const viewport: Viewport = {
+  themeColor: "#2563eb", // This makes the phone's top battery/wifi bar match your brand color
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-gray-50 text-gray-900 antialiased">
+      <body className={inter.className}>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
