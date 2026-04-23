@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation"; // <-- STEP 1: Imported Router
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc } from "firebase/firestore";
@@ -9,14 +10,12 @@ import { Transaction } from "@/types";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const router = useRouter(); // <-- STEP 2: Activated Router
+  
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balances, setBalances] = useState({
-    Bank: 0,
-    Cash: 0,
-    bKash: 0,
-    Metro: 0,
-    Savings: 0
+    Bank: 0, Cash: 0, bKash: 0, Metro: 0, Savings: 0
   });
 
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
@@ -55,16 +54,28 @@ export default function Dashboard() {
     }
   };
 
+  // --- REAL-TIME LISTENER ---
   useEffect(() => {
-    if (!user) return;
+    // 👇 STEP 3: THE FIX 👇
+    // If there is no user, stop loading immediately and kick them to login!
+    if (!user) {
+      setLoading(false); 
+      router.push("/"); // Change this to "/login" if your login page is there
+      return; 
+    }
+    // 👆 END OF STEP 3 👆
+
+    // If there IS a user, fetch the data safely:
     const q = query(collection(db, "transactions"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched: Transaction[] = [];
       let newBalances = { Bank: 0, Cash: 0, bKash: 0, Metro: 0, Savings: 0 };
+      
       snapshot.forEach((doc) => {
         const data = doc.data();
         fetched.push({ id: doc.id, ...data } as Transaction);
         const amount = Number(data.amount);
+        
         if (data.type === "income") {
           const acc = data.account as keyof typeof newBalances;
           newBalances[acc] = (newBalances[acc] || 0) + amount;
@@ -78,19 +89,41 @@ export default function Dashboard() {
           if (to) newBalances[to] = (newBalances[to] || 0) + amount;
         }
       });
+      
       fetched.sort((a, b) => {
         const dA = (a.date as any)?.toDate ? (a.date as any).toDate() : new Date(a.date);
         const dB = (b.date as any)?.toDate ? (b.date as any).toDate() : new Date(b.date);
         return dB.getTime() - dA.getTime();
       });
+      
       setTransactions(fetched);
       setBalances(newBalances);
       setLoading(false);
     });
+    
     return () => unsubscribe();
-  }, [user]);
+  }, [user, router]); // Added router to dependency array to keep React happy
 
+  // --- UI RENDERING ---
+  
   if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading Teka Poysha...</div>;
+
+  // 👇 STEP 4: THE SAFETY NET 👇
+  // If the redirect takes a split second, show this instead of a broken dashboard.
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="text-center bg-white p-8 rounded-3xl shadow-sm border border-gray-100 max-w-sm w-full">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
+          <p className="text-gray-500 mb-6">You need to log in to view this dashboard.</p>
+          <Link href="/" className="block w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors">
+            Go to Login
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  // 👆 END OF STEP 4 👆
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
