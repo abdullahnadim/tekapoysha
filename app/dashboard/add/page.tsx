@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthContext";
@@ -18,6 +18,7 @@ export default function AddTransaction() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState("");
 
+
   // States for Income/Expense
   const [account, setAccount] = useState("Cash");
   const [category, setCategory] = useState("Food");
@@ -25,6 +26,14 @@ export default function AddTransaction() {
   // States for Transfers
   const [fromAccount, setFromAccount] = useState("Bank");
   const [toAccount, setToAccount] = useState("Savings");
+
+  // --- ADD THIS NEW BLOCK ---
+  // Automatically fix the category state when switching tabs
+  useEffect(() => {
+    if (type === 'income') setCategory('Salary');
+    else if (type === 'expense') setCategory('Food');
+  }, [type]);
+  // --------------------------
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
