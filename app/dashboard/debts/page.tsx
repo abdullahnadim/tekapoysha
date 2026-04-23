@@ -13,6 +13,8 @@ interface Debt {
   totalAmount: number;
   amountPaid: number;
   dueDate: string;
+  phone?: string;  // NEW: Added for WhatsApp
+  reason?: string; // NEW: Added for context
 }
 
 export default function DebtsPage() {
@@ -24,14 +26,12 @@ export default function DebtsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [paymentDebtId, setPaymentDebtId] = useState<string | null>(null);
   
-  // Form States
-  const [newDebt, setNewDebt] = useState({ person: "", type: "receivable", totalAmount: "", dueDate: "" });
+  // Form States (Updated with phone and reason)
+  const [newDebt, setNewDebt] = useState({ person: "", type: "receivable", totalAmount: "", dueDate: "", phone: "", reason: "" });
   const [paymentAmount, setPaymentAmount] = useState("");
   
-  // NEW: Account Selectors so it knows where to add/subtract the money!
   const [debtAccount, setDebtAccount] = useState("Cash");
   const [paymentAccount, setPaymentAccount] = useState("Cash");
-
   const [syncToDashboard, setSyncToDashboard] = useState(true);
 
   // --- REAL-TIME FIREBASE CONNECTION ---
@@ -51,12 +51,27 @@ export default function DebtsPage() {
   const totalReceivable = debts.filter(d => d.type === "receivable").reduce((sum, d) => sum + ((Number(d.totalAmount) || 0) - (Number(d.amountPaid) || 0)), 0);
   const totalPayable = debts.filter(d => d.type === "payable").reduce((sum, d) => sum + ((Number(d.totalAmount) || 0) - (Number(d.amountPaid) || 0)), 0);
 
-  // --- HANDLERS (Now with Auto-Sync to Dashboard!) ---
+  // --- WHATSAPP GENERATOR ---
+  const sendWhatsApp = (debt: Debt) => {
+    if (!debt.phone) return alert("Please edit this record and add a phone number first!");
+    
+    let cleanPhone = debt.phone.replace(/[^0-9+]/g, '');
+    if (!cleanPhone.startsWith('+880') && cleanPhone.startsWith('01')) {
+      cleanPhone = '+88' + cleanPhone; 
+    }
+    
+    const remainingAmount = debt.totalAmount - debt.amountPaid;
+    const reasonText = debt.reason ? ` for ${debt.reason}` : '';
+    const message = `Hey ${debt.person} Chomu! ei ৳${remainingAmount.toLocaleString()} pending${reasonText}. taka ta kobe dibi?`;
+    
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  // --- HANDLERS ---
   const handleCreateDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     try {
-      // 1. Create the Debt Record
       await addDoc(collection(db, "debts"), {
         ...newDebt,
         totalAmount: Number(newDebt.totalAmount),
@@ -64,7 +79,6 @@ export default function DebtsPage() {
         userId: user.uid,
       });
 
-      // 2. ONLY AUTO-SYNC IF CHECKED!
       if (syncToDashboard) {
         await addDoc(collection(db, "transactions"), {
           userId: user.uid,
@@ -73,13 +87,13 @@ export default function DebtsPage() {
           category: newDebt.type === "payable" ? "Loan Received" : "Loan Given",
           account: debtAccount,
           date: new Date(),
-          description: `Debt record: ${newDebt.person}`
+          description: `Debt record: ${newDebt.person}${newDebt.reason ? ` (${newDebt.reason})` : ''}`
         });
       }
 
       setIsCreateOpen(false);
-      setNewDebt({ person: "", type: "receivable", totalAmount: "", dueDate: "" });
-      setSyncToDashboard(true); // Reset for next time
+      setNewDebt({ person: "", type: "receivable", totalAmount: "", dueDate: "", phone: "", reason: "" });
+      setSyncToDashboard(true);
     } catch (error) {
       console.error("Error creating record:", error);
     }
@@ -92,18 +106,13 @@ export default function DebtsPage() {
     if (!targetDebt || !paymentDebtId) return;
 
     try {
-      // 1. Update the Debt Progress
       const debtRef = doc(db, "debts", paymentDebtId);
       const currentPaid = Number(targetDebt.amountPaid) || 0;
-      await updateDoc(debtRef, {
-        amountPaid: currentPaid + Number(paymentAmount)
-      });
+      await updateDoc(debtRef, { amountPaid: currentPaid + Number(paymentAmount) });
 
-      // 2. AUTO-SYNC: Log the payment on your Dashboard!
       await addDoc(collection(db, "transactions"), {
         userId: user.uid,
         amount: Number(paymentAmount),
-        // If paying back a payable, it's Expense. If receiving a receivable, it's Income.
         type: targetDebt.type === "payable" ? "expense" : "income",
         category: targetDebt.type === "payable" ? "Debt Repayment" : "Debt Collected",
         account: paymentAccount,
@@ -162,6 +171,7 @@ export default function DebtsPage() {
             const isReceivable = debt.type === "receivable";
             const paid = Number(debt.amountPaid) || 0;
             const total = Number(debt.totalAmount) || 0;
+            const remaining = total - paid;
             const progress = total > 0 ? Math.min((paid / total) * 100, 100) : 0;
 
             return (
@@ -173,6 +183,7 @@ export default function DebtsPage() {
                       <span className={`inline-block mt-1 text-xs font-bold px-3 py-1 rounded-full ${isReceivable ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                         {isReceivable ? 'THEY OWE YOU' : 'YOU OWE THEM'}
                       </span>
+                      {debt.reason && <p className="text-xs text-gray-500 mt-2 font-medium">Reason: {debt.reason}</p>}
                     </div>
                     <button onClick={() => handleDeleteDebt(debt.id)} className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100">
                       🗑
@@ -196,9 +207,24 @@ export default function DebtsPage() {
                 {progress >= 100 && total > 0 ? (
                   <div className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-center">Fully Settled ✓</div>
                 ) : (
-                  <button onClick={() => setPaymentDebtId(debt.id)} className="w-full py-3 border-2 border-gray-100 text-gray-700 font-bold rounded-xl hover:border-gray-900 hover:text-gray-900 transition-colors">
-                    Log Partial Payment
-                  </button>
+                  <div className="flex gap-2 mt-2">
+                    {/* NEW: WhatsApp Remind Button */}
+                    {isReceivable && remaining > 0 && debt.phone && (
+                      <button 
+                        onClick={() => sendWhatsApp(debt)}
+                        className="px-4 py-3 bg-green-50 text-green-700 font-bold rounded-xl hover:bg-green-100 border border-green-200 transition-colors"
+                        title="Send WhatsApp Reminder"
+                      >
+                        💬 Remind
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => setPaymentDebtId(debt.id)} 
+                      className="flex-1 py-3 border-2 border-gray-100 text-gray-700 font-bold rounded-xl hover:border-gray-900 hover:text-gray-900 transition-colors"
+                    >
+                      Log Partial Payment
+                    </button>
+                  </div>
                 )}
               </div>
             );
@@ -208,13 +234,20 @@ export default function DebtsPage() {
         {/* --- CREATE MODAL --- */}
         {isCreateOpen && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl h-[90vh] overflow-y-auto">
               <h2 className="text-2xl font-bold mb-6 text-gray-900">Add Debt Record</h2>
               <form onSubmit={handleCreateDebt} className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Who is involved?</label>
                   <input type="text" required value={newDebt.person} onChange={e => setNewDebt({...newDebt, person: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" placeholder="Name" />
                 </div>
+                
+                {/* NEW: Reason Field */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Reason (Optional)</label>
+                  <input type="text" value={newDebt.reason} onChange={e => setNewDebt({...newDebt, reason: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" placeholder="e.g. Dinner, Rent" />
+                </div>
+
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Record Type</label>
                   <select value={newDebt.type} onChange={e => setNewDebt({...newDebt, type: e.target.value as any})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
@@ -222,6 +255,15 @@ export default function DebtsPage() {
                     <option value="payable">I owe them money (Borrowing / Income)</option>
                   </select>
                 </div>
+                
+                {/* NEW: Phone Field (Only shows if they owe you) */}
+                {newDebt.type === "receivable" && (
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">WhatsApp Number (Optional)</label>
+                    <input type="tel" value={newDebt.phone} onChange={e => setNewDebt({...newDebt, phone: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-green-500" placeholder="e.g. 017..." />
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Total Amount</label>
@@ -236,6 +278,7 @@ export default function DebtsPage() {
                     </select>
                   </div>
                 </div>
+
                 <div>
                   <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl mt-4 mb-4">
                   <input 
@@ -251,9 +294,9 @@ export default function DebtsPage() {
                   </label>
                 </div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Due Date</label>
-                  
                   <input type="date" required value={newDebt.dueDate} onChange={e => setNewDebt({...newDebt, dueDate: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
                 </div>
+
                 <div className="flex gap-4 mt-6">
                   <button type="button" onClick={() => setIsCreateOpen(false)} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Cancel</button>
                   <button type="submit" className="flex-1 py-3 bg-gray-900 text-white font-bold rounded-xl">Create</button>
