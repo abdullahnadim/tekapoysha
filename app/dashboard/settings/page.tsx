@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth/AuthContext";
-import { updateProfile, updatePassword } from "firebase/auth";
+import { updateProfile, updatePassword, signOut, getAuth } from "firebase/auth"; // <-- Added signOut & getAuth
+import { useRouter } from "next/navigation"; // <-- Added useRouter
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const router = useRouter(); // <-- Initialize router
   
   // States
   const [displayName, setDisplayName] = useState("");
@@ -51,10 +53,9 @@ export default function SettingsPage() {
     try {
       await updatePassword(user, newPassword);
       setMessage({ type: "success", text: "Password updated successfully!" });
-      setNewPassword(""); // Clear the field after success
+      setNewPassword(""); 
     } catch (error: any) {
       console.error("Error updating password:", error);
-      // Firebase requires a "recent login" to change passwords for security reasons.
       if (error.code === 'auth/requires-recent-login') {
         setMessage({ type: "error", text: "For security reasons, please log out and log back in before changing your password." });
       } else {
@@ -62,6 +63,18 @@ export default function SettingsPage() {
       }
     } finally {
       setLoadingPassword(false);
+    }
+  };
+
+  // --- NEW: Handle Logout ---
+  const handleLogout = async () => {
+    try {
+      const auth = getAuth();
+      await signOut(auth); // Tells Firebase to kill the session
+      router.push("/"); // Kicks you back to the home/login page
+    } catch (error) {
+      console.error("Error signing out:", error);
+      setMessage({ type: "error", text: "Failed to sign out. Please try again." });
     }
   };
 
@@ -101,7 +114,6 @@ export default function SettingsPage() {
           {/* PROFILE INFO CARD */}
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
             <h2 className="text-xl font-bold text-gray-900 mb-6 border-b pb-4">Personal Information</h2>
-            
             <form onSubmit={handleUpdateName} className="space-y-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">Display Name</label>
@@ -121,7 +133,6 @@ export default function SettingsPage() {
                   value={user.email || ""} 
                   className="w-full rounded-xl border border-gray-200 bg-gray-100 px-4 py-3 text-gray-500 cursor-not-allowed" 
                 />
-                <p className="text-xs text-gray-400 mt-2 font-medium">Email address cannot be changed directly for security reasons.</p>
               </div>
               <button 
                 type="submit" 
@@ -136,7 +147,6 @@ export default function SettingsPage() {
           {/* SECURITY CARD */}
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
             <h2 className="text-xl font-bold text-gray-900 mb-6 border-b pb-4">Security</h2>
-            
             <form onSubmit={handleUpdatePassword} className="space-y-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">New Password</label>
@@ -149,17 +159,27 @@ export default function SettingsPage() {
                   className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" 
                   placeholder="Enter a new secure password"
                 />
-                <p className="text-xs text-gray-400 mt-2 font-medium">Must be at least 6 characters long.</p>
               </div>
-              
               <button 
                 type="submit" 
                 disabled={loadingPassword || !newPassword}
-                className="w-full md:w-auto px-8 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors shadow-sm disabled:bg-red-300 disabled:cursor-not-allowed"
+                className="w-full md:w-auto px-8 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-sm disabled:bg-blue-300 disabled:cursor-not-allowed"
               >
                 {loadingPassword ? "Updating..." : "Update Password"}
               </button>
             </form>
+          </div>
+
+          {/* --- NEW: DANGER ZONE / LOGOUT --- */}
+          <div className="bg-red-50 p-8 rounded-3xl border border-red-100 mt-4">
+            <h2 className="text-xl font-bold text-red-900 mb-2">Account Actions</h2>
+            <p className="text-red-700 text-sm mb-6 font-medium">Ready to leave? Make sure you have saved all your recent transactions.</p>
+            <button 
+              onClick={handleLogout}
+              className="w-full md:w-auto px-8 py-3 bg-white text-red-600 border-2 border-red-200 font-bold rounded-xl hover:bg-red-600 hover:text-white transition-colors shadow-sm"
+            >
+              Sign Out of TekaPoysha
+            </button>
           </div>
 
         </div>

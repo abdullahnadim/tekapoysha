@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation"; // <-- STEP 1: Imported Router
+import { useRouter } from "next/navigation"; 
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { Transaction } from "@/types";
 
+// 👇 NEW: Imported your Spending Chart component
+import SpendingChart from "@/components/dashboard/SpendingChart"; 
+
 export default function Dashboard() {
   const { user } = useAuth();
-  const router = useRouter(); // <-- STEP 2: Activated Router
+  const router = useRouter(); 
   
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -56,16 +59,12 @@ export default function Dashboard() {
 
   // --- REAL-TIME LISTENER ---
   useEffect(() => {
-    // 👇 STEP 3: THE FIX 👇
-    // If there is no user, stop loading immediately and kick them to login!
     if (!user) {
       setLoading(false); 
-      router.push("/"); // Change this to "/login" if your login page is there
+      router.push("/"); 
       return; 
     }
-    // 👆 END OF STEP 3 👆
 
-    // If there IS a user, fetch the data safely:
     const q = query(collection(db, "transactions"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched: Transaction[] = [];
@@ -102,14 +101,12 @@ export default function Dashboard() {
     });
     
     return () => unsubscribe();
-  }, [user, router]); // Added router to dependency array to keep React happy
+  }, [user, router]); 
 
   // --- UI RENDERING ---
   
   if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading Teka Poysha...</div>;
 
-  // 👇 STEP 4: THE SAFETY NET 👇
-  // If the redirect takes a split second, show this instead of a broken dashboard.
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -123,7 +120,6 @@ export default function Dashboard() {
       </div>
     );
   }
-  // 👆 END OF STEP 4 👆
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
@@ -151,46 +147,60 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* TRANSACTIONS SECTION */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-50 flex justify-between items-center">
-            <h3 className="font-bold text-gray-900">Recent Activity</h3>
-            <Link href="/dashboard/add" className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 transition-all">+ Add New</Link>
+        {/* 👇 NEW: DATA VISUALIZATION & TRANSACTIONS GRID 👇 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* LEFT SIDE: SPENDING CHART CARD (Takes up 1 column on desktop) */}
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 lg:col-span-1 flex flex-col">
+            <h3 className="font-bold text-gray-900 mb-1">Spending Breakdown</h3>
+            <p className="text-xs text-gray-500 mb-4">Where your money went.</p>
+            <div className="flex-1">
+              <SpendingChart transactions={transactions} />
+            </div>
           </div>
 
-          <div className="divide-y divide-gray-50">
-            {transactions.length === 0 ? (
-              <p className="p-10 text-center text-gray-400">No data found.</p>
-            ) : (
-              transactions.slice(0, 10).map((txn) => (
-                <div key={txn.id} className="p-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${txn.type === 'income' ? 'bg-green-50 text-green-600' : txn.type === 'transfer' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
-                      {txn.type === 'income' ? '↓' : txn.type === 'transfer' ? '⇄' : '↑'}
+          {/* RIGHT SIDE: TRANSACTIONS LIST (Takes up 2 columns on desktop) */}
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden lg:col-span-2">
+            <div className="p-6 border-b border-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-900">Recent Activity</h3>
+              <Link href="/dashboard/add" className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 transition-all">+ Add New</Link>
+            </div>
+
+            <div className="divide-y divide-gray-50">
+              {transactions.length === 0 ? (
+                <p className="p-10 text-center text-gray-400">No data found.</p>
+              ) : (
+                transactions.slice(0, 10).map((txn) => (
+                  <div key={txn.id} className="p-5 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${txn.type === 'income' ? 'bg-green-50 text-green-600' : txn.type === 'transfer' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
+                        {txn.type === 'income' ? '↓' : txn.type === 'transfer' ? '⇄' : '↑'}
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900 text-base">{txn.category}</p>
+                        <p className="text-xs text-gray-400 font-medium">
+                          {txn.type === 'transfer' ? `${txn.fromAccount} to ${txn.toAccount}` : txn.account} • {new Date((txn.date as any)?.toDate ? (txn.date as any).toDate() : txn.date).toLocaleDateString('en-GB')}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-gray-900 text-base">{txn.category}</p>
-                      <p className="text-xs text-gray-400 font-medium">
-                        {txn.type === 'transfer' ? `${txn.fromAccount} to ${txn.toAccount}` : txn.account} • {new Date((txn.date as any)?.toDate ? (txn.date as any).toDate() : txn.date).toLocaleDateString('en-GB')}
-                      </p>
+                    <div className="flex items-center gap-6">
+                      <div className="text-right">
+                        <p className={`text-lg font-black ${txn.type === 'income' ? 'text-green-600' : txn.type === 'transfer' ? 'text-blue-600' : 'text-gray-900'}`}>
+                          {txn.type === 'income' ? '+' : txn.type === 'transfer' ? '' : '-'} ৳ {Number(txn.amount).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => setEditingTxn({...txn, date: formatDateForInput(txn.date)})} className="p-2 text-gray-300 hover:text-blue-600 transition-colors">✎</button>
+                        <button onClick={() => txn.id && handleDelete(txn.id)} className="p-2 text-gray-300 hover:text-red-600 transition-colors">🗑</button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-6">
-                    <div className="text-right">
-                      <p className={`text-lg font-black ${txn.type === 'income' ? 'text-green-600' : txn.type === 'transfer' ? 'text-blue-600' : 'text-gray-900'}`}>
-                        {txn.type === 'income' ? '+' : txn.type === 'transfer' ? '' : '-'} ৳ {Number(txn.amount).toLocaleString('en-IN')}
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditingTxn({...txn, date: formatDateForInput(txn.date)})} className="p-2 text-gray-300 hover:text-blue-600 transition-colors">✎</button>
-                      <button onClick={() => txn.id && handleDelete(txn.id)} className="p-2 text-gray-300 hover:text-red-600 transition-colors">🗑</button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
+        {/* 👆 END OF GRID 👆 */}
 
         {/* EDIT MODAL */}
         {editingTxn && (
