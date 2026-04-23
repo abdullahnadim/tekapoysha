@@ -41,6 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               Debts
             </Link>
           </div>
+          <Link href="/dashboard/savings" className="text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors">Savings</Link>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
