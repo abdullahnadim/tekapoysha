@@ -79,7 +79,7 @@ export default function SignUpPage() {
             className="h-12 w-12 object-contain mb-3" 
           />
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Create your account</h2>
-          <p className="text-gray-500 font-medium text-sm mt-1">Start tracking your money today.</p>
+          <p className="text-gray-500 font-medium text-sm mt-1">Start tracking your shit today.</p>
         </div>
 
         {/* ERROR MESSAGE */}
