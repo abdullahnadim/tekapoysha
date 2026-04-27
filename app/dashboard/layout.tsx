@@ -1,107 +1,248 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthContext";
+import { db } from "@/lib/firebase/config";
+import { collection, query, where, onSnapshot, updateDoc, doc, orderBy } from "firebase/firestore";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  date: any;
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
   const { user } = useAuth();
 
-  // Your main navigation links
-  const navLinks = [
-    { name: "Overview", href: "/dashboard" },
-    { name: "Savings", href: "/dashboard/savings" },
-    { name: "Debts", href: "/dashboard/debts" },
-    { name: "Analytics", href: "/dashboard/analytics" },
+  // Notification States
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+
+  // Unread Count
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  // Real-time Notification Listener
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen for all notifications for this user, ordered by newest first
+    const q = query(
+      collection(db, "notifications"), 
+      where("userId", "==", user.uid),
+      // Note: You might need to create a Firestore index for this compound query
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched: AppNotification[] = [];
+      snapshot.forEach((doc) => {
+        fetched.push({ id: doc.id, ...doc.data() } as AppNotification);
+      });
+      
+      // Sort in memory to avoid strict Firestore index requirements for now
+      fetched.sort((a, b) => {
+        const dA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+        const dB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+        return dB.getTime() - dA.getTime();
+      });
+
+      setNotifications(fetched);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Mark single notification as read
+  const markAsRead = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "notifications", id), { isRead: true });
+    } catch (error) {
+      console.error("Error marking as read:", error);
+    }
+  };
+
+  // Mark ALL as read
+  const markAllAsRead = async () => {
+    const unread = notifications.filter(n => !n.isRead);
+    unread.forEach(async (n) => {
+      await markAsRead(n.id);
+    });
+  };
+
+  const navItems = [
+    {
+      name: "Overview", href: "/dashboard",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      )
+    },
+    {
+      name: "Savings", href: "/dashboard/savings",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      )
+    },
+    {
+      name: "Debts", href: "/dashboard/debts",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+      )
+    },
+    {
+      name: "Analytics", href: "/dashboard/analytics",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      )
+    }
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* --- TOP NAVBAR --- */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 md:px-8">
-          <div className="flex justify-between items-center h-16">
-            
-            {/* LOGO & LINKS */}
-            <div className="flex items-center gap-8">
-              
-              {/* LOGO AND TEXT SIDE-BY-SIDE */}
-              <Link href="/dashboard" className="flex items-center gap-3 transition-opacity hover:opacity-80">
-                <Image 
-                  src="/tekapoysha-logo.png" 
-                  alt="TekaPoysha Logo" 
-                  width={32} 
-                  height={32} 
-                  className="h-8 w-8 object-contain" 
-                  priority 
-                />
-                <div className="text-xl font-black tracking-tighter hidden sm:block">
-                  <span className="text-blue-600">Teka</span><span className="text-gray-900">Poysha</span>
-                </div>
+    <div className="min-h-screen bg-gray-50 flex flex-col relative">
+      
+      {/* --- TOP HEADER (Mobile & Desktop) --- */}
+      <header className="bg-white shadow-sm border-b border-gray-100 py-3 px-4 md:px-8 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-8">
+          <Link href="/dashboard">
+            <h1 className="text-2xl font-black text-blue-600 tracking-tight">TekaPoysha</h1>
+          </Link>
+          {/* Desktop Nav Links */}
+          <nav className="hidden md:flex gap-6">
+            {navItems.map((item) => (
+              <Link 
+                key={item.name} 
+                href={item.href}
+                className={`font-bold transition-colors ${pathname === item.href ? "text-blue-600" : "text-gray-500 hover:text-gray-900"}`}
+              >
+                {item.name}
               </Link>
-              
-              {/* Desktop Menu */}
-              <div className="hidden md:flex gap-2">
-                {navLinks.map((link) => (
-                  <Link 
-                    key={link.name} 
-                    href={link.href}
-                    className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                      pathname === link.href 
-                        ? "bg-gray-100 text-gray-900" 
-                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    {link.name}
-                  </Link>
-                ))}
-              </div>
-            </div>
+            ))}
+          </nav>
+        </div>
 
-            {/* CLICKABLE PROFILE PILL */}
-            <Link 
-              href="/dashboard/settings" 
-              className="flex items-center gap-3 p-1.5 pr-4 rounded-full border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group"
-              title="Go to Settings"
-            >
-              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-sm group-hover:scale-105 transition-transform">
-                {user?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'U'}
-              </div>
-              <span className="text-sm font-bold text-gray-700 hidden md:block">
-                {user?.displayName || "Update Profile"}
+        {/* User Actions (Bell & Profile) */}
+        <div className="flex items-center gap-4">
+          
+          {/* THE BELL ICON */}
+          <button 
+            onClick={() => setIsPanelOpen(!isPanelOpen)}
+            className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {/* The Red Notification Badge */}
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 border-2 border-white rounded-full">
+                {unreadCount > 9 ? '9+' : unreadCount}
               </span>
-            </Link>
+            )}
+          </button>
 
+          {/* User Avatar Placeholder */}
+          <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-full flex items-center justify-center text-white font-bold shadow-sm cursor-pointer">
+            {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
           </div>
         </div>
-      </nav>
+      </header>
 
-      {/* --- MAIN PAGE CONTENT --- */}
-      <main>
+      {/* --- NOTIFICATION DROPDOWN PANEL --- */}
+      {isPanelOpen && (
+        <>
+          {/* Invisible backdrop to click away and close */}
+          <div className="fixed inset-0 z-40" onClick={() => setIsPanelOpen(false)}></div>
+          
+          <div className="absolute top-16 right-4 md:right-8 w-80 max-h-[80vh] overflow-y-auto bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 animate-in slide-in-from-top-4 fade-in duration-200">
+            <div className="p-4 border-b border-gray-50 flex justify-between items-center sticky top-0 bg-white/90 backdrop-blur-md rounded-t-3xl">
+              <h3 className="font-bold text-gray-900">Notifications</h3>
+              {unreadCount > 0 && (
+                <button onClick={markAllAsRead} className="text-xs font-bold text-blue-600 hover:text-blue-800">
+                  Mark all read
+                </button>
+              )}
+            </div>
+            
+            <div className="divide-y divide-gray-50">
+              {notifications.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 font-medium text-sm">
+                  You're all caught up! 🍃
+                </div>
+              ) : (
+                notifications.map((notif) => (
+                  <div 
+                    key={notif.id} 
+                    onClick={() => markAsRead(notif.id)}
+                    className={`p-4 transition-colors cursor-pointer hover:bg-gray-50 ${!notif.isRead ? 'bg-blue-50/50' : ''}`}
+                  >
+                    <div className="flex gap-3">
+                      <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${!notif.isRead ? 'bg-blue-600' : 'bg-transparent'}`}></div>
+                      <div>
+                        <p className={`text-sm ${!notif.isRead ? 'font-bold text-gray-900' : 'font-medium text-gray-600'}`}>
+                          {notif.title}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{notif.message}</p>
+                        <p className="text-[10px] text-gray-400 mt-2 font-bold uppercase tracking-wider">
+                          {new Date(notif.date?.toDate ? notif.date.toDate() : notif.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 pb-32 md:pb-8">
         {children}
       </main>
 
-      {/* --- MOBILE BOTTOM NAV (Appears only on phones) --- */}
-      <div className="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-100 flex justify-around p-3 z-40 pb-safe">
-        {navLinks.map((link) => (
-          <Link 
-            key={link.name} 
-            href={link.href}
-            className={`text-xs font-bold p-2 ${pathname === link.href ? "text-blue-600" : "text-gray-400"}`}
-          >
-            {link.name}
-          </Link>
-        ))}
-        {/* Mobile Settings Icon */}
-        <Link 
-          href="/dashboard/settings"
-          className={`text-xs font-bold p-2 ${pathname === '/dashboard/settings' ? "text-blue-600" : "text-gray-400"}`}
-        >
-          Settings
-        </Link>
+      {/* HIGH IMPACT MOBILE BOTTOM NAVBAR */}
+      <div 
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/90 backdrop-blur-lg border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.08)]"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} 
+      >
+        <nav className="flex justify-around items-center px-2 pt-3">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href; 
+            return (
+              <Link 
+                key={item.name} 
+                href={item.href}
+                className={`flex flex-col items-center justify-center w-full py-2 px-1 rounded-2xl transition-all ${
+                  isActive ? "text-blue-600" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                }`}
+                style={{ WebkitTapHighlightColor: 'transparent' }} 
+              >
+                <div className={`mb-1 transition-transform ${isActive ? "scale-110" : "scale-100"}`}>
+                  {item.icon}
+                </div>
+                <span className={`text-[10px] uppercase tracking-widest font-black ${isActive ? "opacity-100" : "opacity-70"}`}>
+                  {item.name}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
       </div>
+
     </div>
   );
 }

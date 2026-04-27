@@ -28,6 +28,7 @@ export default function SavingsPlanner() {
   // Form States
   const [newGoal, setNewGoal] = useState({ name: "", targetAmount: "", deadlineDate: "", contributionFrequency: "Monthly" });
   const [fundAmount, setFundAmount] = useState("");
+  const [fundAccount, setFundAccount] = useState("Bank"); // <-- NEW: For Smart Sync
 
   // --- REAL-TIME FIREBASE CONNECTION ---
   useEffect(() => {
@@ -84,16 +85,42 @@ export default function SavingsPlanner() {
     }
   };
 
+  // 👇 THE MAGIC HAPPENS HERE: Smart Sync + Notifications
   const handleAddFunds = async (e: React.FormEvent) => {
     e.preventDefault();
     const goalToUpdate = goals.find(g => g.id === fundGoalId);
-    if (!goalToUpdate || !fundGoalId) return;
+    if (!goalToUpdate || !fundGoalId || !user) return;
+
+    const amountToAdd = Number(fundAmount);
 
     try {
+      // 1. Update the Goal's progress
       const goalRef = doc(db, "goals", fundGoalId);
       await updateDoc(goalRef, {
-        currentSaved: goalToUpdate.currentSaved + Number(fundAmount)
+        currentSaved: goalToUpdate.currentSaved + amountToAdd
       });
+
+      // 2. SMART SYNC: Create a dashboard transaction to deduct the money
+      await addDoc(collection(db, "transactions"), {
+        userId: user.uid,
+        amount: amountToAdd,
+        type: "expense", // Deducting from available cash
+        category: `Savings: ${goalToUpdate.name}`,
+        account: fundAccount,
+        date: new Date(),
+        description: `Deposited into ${goalToUpdate.name} goal`
+      });
+
+      // 3. NOTIFICATION SYSTEM: Fire a celebratory alert to the Bell Icon
+      await addDoc(collection(db, "notifications"), {
+        userId: user.uid,
+        title: "Savings Boost! 🚀",
+        message: `You successfully added ৳ ${amountToAdd.toLocaleString('en-IN')} to your ${goalToUpdate.name} goal.`,
+        isRead: false,
+        date: new Date()
+      });
+
+      // Reset Modal
       setFundGoalId(null);
       setFundAmount("");
     } catch (error) {
@@ -297,7 +324,7 @@ export default function SavingsPlanner() {
           </div>
         )}
 
-        {/* --- ADD FUNDS MODAL --- */}
+        {/* --- ADD FUNDS MODAL (Upgraded) --- */}
         {fundGoalId && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
@@ -307,6 +334,18 @@ export default function SavingsPlanner() {
                   <label className="block text-sm font-bold text-gray-700 mb-2">Amount (৳)</label>
                   <input type="number" required value={fundAmount} onChange={e => setFundAmount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-green-500 text-xl font-bold" placeholder="0" />
                 </div>
+                
+                {/* 👇 NEW: Account selector for Smart Sync */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Deduct from Account</label>
+                  <select value={fundAccount} onChange={e => setFundAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-blue-500 text-gray-700 font-medium">
+                    <option value="Bank">Bank</option>
+                    <option value="Cash">Cash</option>
+                    <option value="bKash">bKash</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-2">This money will be transferred from your available {fundAccount} balance to this goal.</p>
+                </div>
+
                 <div className="flex gap-4 mt-8">
                   <button type="button" onClick={() => setFundGoalId(null)} className="flex-1 py-4 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancel</button>
                   <button type="submit" className="flex-1 py-4 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-colors">Add</button>
