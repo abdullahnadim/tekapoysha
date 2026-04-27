@@ -5,10 +5,9 @@ import { AuthProvider } from "@/components/auth/AuthContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
-// 1. ADD THE MANIFEST LINK HERE 👇
 export const metadata: Metadata = {
   title: "TekaPoysha",
-  description: "A genuine maal to save your shits",
+  description: "A maal to save your shits",
   manifest: "/manifest.json", 
   appleWebApp: {
     capable: true,
@@ -17,9 +16,8 @@ export const metadata: Metadata = {
   },
 };
 
-// 2. ADD THE THEME COLOR HERE 👇
 export const viewport: Viewport = {
-  themeColor: "#2563eb", // This makes the phone's top battery/wifi bar match your brand color
+  themeColor: "#2563eb", 
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
