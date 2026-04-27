@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, onSnapshot, updateDoc, doc, orderBy } from "firebase/firestore";
+import { collection, query, where, onSnapshot, updateDoc, doc } from "firebase/firestore";
 
 interface AppNotification {
   id: string;
@@ -13,6 +14,7 @@ interface AppNotification {
   message: string;
   isRead: boolean;
   date: any;
+  userId?: string;
 }
 
 export default function DashboardLayout({
@@ -30,24 +32,33 @@ export default function DashboardLayout({
   // Unread Count
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  // Real-time Notification Listener
+  // --- REAL-TIME LISTENER (Upgraded for Global Broadcasts) ---
   useEffect(() => {
     if (!user) return;
 
-    // Listen for all notifications for this user, ordered by newest first
+    // Listen for personal notifications AND "GLOBAL" announcements
     const q = query(
       collection(db, "notifications"), 
-      where("userId", "==", user.uid),
-      // Note: You might need to create a Firestore index for this compound query
+      where("userId", "in", [user.uid, "GLOBAL"])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      // Pull the list of Global IDs this user has already read from local memory
+      const readGlobalIds = JSON.parse(localStorage.getItem('readGlobalNotifs') || '[]');
+      
       const fetched: AppNotification[] = [];
       snapshot.forEach((doc) => {
-        fetched.push({ id: doc.id, ...doc.data() } as AppNotification);
+        const data = doc.data() as AppNotification;
+        
+        // If it's a global notification, check local storage to see if they read it
+        if (data.userId === "GLOBAL") {
+          data.isRead = readGlobalIds.includes(doc.id);
+        }
+
+        fetched.push({ id: doc.id, ...data });
       });
       
-      // Sort in memory to avoid strict Firestore index requirements for now
+      // Sort newest first
       fetched.sort((a, b) => {
         const dA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
         const dB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
@@ -60,16 +71,30 @@ export default function DashboardLayout({
     return () => unsubscribe();
   }, [user]);
 
-  // Mark single notification as read
+  // --- MARK AS READ HANDLERS ---
   const markAsRead = async (id: string) => {
-    try {
-      await updateDoc(doc(db, "notifications", id), { isRead: true });
-    } catch (error) {
-      console.error("Error marking as read:", error);
+    const notification = notifications.find(n => n.id === id);
+    if (!notification) return;
+
+    if (notification.userId === "GLOBAL") {
+      // It's a broadcast! Save the read receipt locally to save Firebase costs
+      const readGlobalIds = JSON.parse(localStorage.getItem('readGlobalNotifs') || '[]');
+      if (!readGlobalIds.includes(id)) {
+        readGlobalIds.push(id);
+        localStorage.setItem('readGlobalNotifs', JSON.stringify(readGlobalIds));
+        // Instantly update the UI
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      }
+    } else {
+      // It's a personal notification! Update Firebase normally
+      try {
+        await updateDoc(doc(db, "notifications", id), { isRead: true });
+      } catch (error) {
+        console.error("Error marking as read:", error);
+      }
     }
   };
 
-  // Mark ALL as read
   const markAllAsRead = async () => {
     const unread = notifications.filter(n => !n.isRead);
     unread.forEach(async (n) => {
@@ -118,8 +143,18 @@ export default function DashboardLayout({
       {/* --- TOP HEADER (Mobile & Desktop) --- */}
       <header className="bg-white shadow-sm border-b border-gray-100 py-3 px-4 md:px-8 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-8">
-          <Link href="/dashboard">
-            <h1 className="text-2xl font-black text-blue-600 tracking-tight">TekaPoysha</h1>
+          {/* THE LOGO */}
+          <Link href="/dashboard" className="flex items-center gap-2 min-w-fit">
+            <Image 
+              src="/tekapoysha-logo.png" 
+              alt="TekaPoysha Logo" 
+              width={32} 
+              height={32} 
+              className="h-8 w-8 object-contain" 
+            />
+            <h1 className="hidden md:block text-2xl font-black text-blue-600 tracking-tight whitespace-nowrap">
+              TekaPoysha
+            </h1>
           </Link>
           {/* Desktop Nav Links */}
           <nav className="hidden md:flex gap-6">
