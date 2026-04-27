@@ -221,8 +221,8 @@ export default function DashboardLayout({
                 <div className="divide-y divide-gray-50">
                   {notifications.length === 0 ? (
                     <div className="p-8 text-center text-gray-400 font-medium text-sm">
-                      You're all caught up! 🍃
-                    </div>
+  You&apos;re all caught up! 🍃
+</div>
                   ) : (
                     notifications.map((notif) => (
                       <div 
