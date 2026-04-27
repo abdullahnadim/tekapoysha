@@ -55,7 +55,8 @@ export default function DashboardLayout({
           data.isRead = readGlobalIds.includes(doc.id);
         }
 
-        fetched.push({ id: doc.id, ...data });
+        // 👇 THE TYPESCRIPT FIX: Spreading data first, then setting the exact ID
+        fetched.push({ ...data, id: doc.id });
       });
       
       // Sort newest first
@@ -221,8 +222,8 @@ export default function DashboardLayout({
                 <div className="divide-y divide-gray-50">
                   {notifications.length === 0 ? (
                     <div className="p-8 text-center text-gray-400 font-medium text-sm">
-  You&apos;re all caught up! 🍃
-</div>
+                      You're all caught up! 🍃
+                    </div>
                   ) : (
                     notifications.map((notif) => (
                       <div 
