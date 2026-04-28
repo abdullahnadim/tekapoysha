@@ -305,7 +305,12 @@ export default function HomePage() {
               </a>
 
             </div>
-
+          {/* Legal Links for SEO/YMYL */}
+            <div className="flex items-center justify-center md:justify-end gap-4 text-xs font-bold text-gray-500 w-full mt-6 md:mt-0 md:w-auto">
+              <Link href="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
+              <span>•</span>
+              <Link href="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
+            </div>
             {/* Copyright */}
             <div className="text-sm font-bold text-gray-500 md:text-right">
               © {new Date().getFullYear()} • Made by MirShaheb.
