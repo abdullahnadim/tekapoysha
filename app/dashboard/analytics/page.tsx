@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LoadingShield from "@/components/ui/LoadingShield";
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
@@ -41,7 +42,7 @@ export default function AnalyticsPage() {
     .filter(t => t.type === "expense")
     .reduce((sum, t) => sum + Number(t.amount), 0);
 
-  if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading Analytics...</div>;
+  if (loading) return <LoadingShield text="Analyzing..." />;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">

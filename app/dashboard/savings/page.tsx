@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LoadingShield from "@/components/ui/LoadingShield";
 import Link from "next/link";
+import Image from "next/image"; // 👈 ADDED: Required for the new loading animation!
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
@@ -24,8 +26,6 @@ export default function SavingsPlanner() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [fundGoalId, setFundGoalId] = useState<string | null>(null);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
-  
-  // 👇 NEW: Premium Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Form States
@@ -51,7 +51,7 @@ export default function SavingsPlanner() {
     return () => unsubscribe();
   }, [user]);
 
-  // 👇 NEW: Auto-dismiss Toast after 3 seconds
+  // Auto-dismiss Toast after 3 seconds
   useEffect(() => {
     if (toastMessage) {
       const timer = setTimeout(() => {
@@ -107,13 +107,11 @@ export default function SavingsPlanner() {
     const amountToAdd = Number(fundAmount);
 
     try {
-      // 1. Update the Goal's progress
       const goalRef = doc(db, "goals", fundGoalId);
       await updateDoc(goalRef, {
         currentSaved: goalToUpdate.currentSaved + amountToAdd
       });
 
-      // 2. SMART SYNC: Create a dashboard transaction
       await addDoc(collection(db, "transactions"), {
         userId: user.uid,
         amount: amountToAdd,
@@ -124,10 +122,8 @@ export default function SavingsPlanner() {
         description: `Deposited into ${goalToUpdate.name} goal`
       });
 
-      // 👇 3. THE PREMIUM UPGRADE: Trigger the sleek Toast instead of the Bell notification!
       setToastMessage(`Awesome! Added ৳ ${amountToAdd.toLocaleString('en-IN')} to ${goalToUpdate.name} 🚀`);
 
-      // Reset Modal
       setFundGoalId(null);
       setFundAmount("");
     } catch (error) {
@@ -165,7 +161,8 @@ export default function SavingsPlanner() {
     }
   };
 
-  if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading your future...</div>;
+  // 👇 THE PREMIUM LOADING SHIELD (Zero Layout Shift)
+  if (loading) return <LoadingShield text="Syncing Vault..." />;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans pb-32">
@@ -365,7 +362,7 @@ export default function SavingsPlanner() {
 
       </div>
 
-      {/* 👇 NEW: PREMIUM TOAST NOTIFICATION UI */}
+      {/* PREMIUM TOAST NOTIFICATION UI */}
       {toastMessage && (
         <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
           <div className="bg-gray-900 text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 font-medium text-sm border border-gray-700">

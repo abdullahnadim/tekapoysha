@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LoadingShield from "@/components/ui/LoadingShield";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
@@ -136,7 +137,7 @@ export default function DebtsPage() {
     }
   };
 
-  if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading ledger...</div>;
+  if (loading) return <LoadingShield text="Calculating Debts..." />;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
