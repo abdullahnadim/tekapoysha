@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot, updateDoc, doc } from "firebase/firestore";
+import { getAuth, signOut } from "firebase/auth";
 
 interface AppNotification {
   id: string;
@@ -23,43 +24,48 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user } = useAuth();
 
-  // Notification States
+  // --- UI STATES ---
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false); // NEW: Profile State
 
-  // Unread Count
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  // --- REAL-TIME LISTENER (Global Broadcasts Included) ---
+  // --- LOGOUT HANDLER ---
+  const handleLogout = async () => {
+    try {
+      const auth = getAuth();
+      await signOut(auth);
+      router.push("/"); // Sends you back to the home/login screen
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
+
+  // --- REAL-TIME LISTENER ---
   useEffect(() => {
     if (!user) return;
 
-    // Listen for personal notifications AND "GLOBAL" announcements
     const q = query(
       collection(db, "notifications"), 
       where("userId", "in", [user.uid, "GLOBAL"])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Pull the list of Global IDs this user has already read from local memory
       const readGlobalIds = JSON.parse(localStorage.getItem('readGlobalNotifs') || '[]');
-      
       const fetched: AppNotification[] = [];
+      
       snapshot.forEach((doc) => {
         const data = doc.data() as AppNotification;
-        
-        // If it's a global notification, check local storage to see if they read it
         if (data.userId === "GLOBAL") {
           data.isRead = readGlobalIds.includes(doc.id);
         }
-
-        // 👇 THE TYPESCRIPT FIX: Spreading data first, then setting the exact ID
         fetched.push({ ...data, id: doc.id });
       });
       
-      // Sort newest first
       fetched.sort((a, b) => {
         const dA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
         const dB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
@@ -72,13 +78,11 @@ export default function DashboardLayout({
     return () => unsubscribe();
   }, [user]);
 
-  // --- MARK AS READ HANDLERS ---
   const markAsRead = async (id: string) => {
     const notification = notifications.find(n => n.id === id);
     if (!notification) return;
 
     if (notification.userId === "GLOBAL") {
-      // It's a broadcast! Save the read receipt locally
       const readGlobalIds = JSON.parse(localStorage.getItem('readGlobalNotifs') || '[]');
       if (!readGlobalIds.includes(id)) {
         readGlobalIds.push(id);
@@ -86,7 +90,6 @@ export default function DashboardLayout({
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
       }
     } else {
-      // Personal notification! Update Firebase
       try {
         await updateDoc(doc(db, "notifications", id), { isRead: true });
       } catch (error) {
@@ -140,7 +143,6 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col relative">
       
-      {/* --- TOP HEADER (Perfectly Centered 3-Column Layout) --- */}
       <header className="bg-white shadow-sm border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 md:px-8 py-3 flex items-center justify-between w-full relative">
           
@@ -178,7 +180,10 @@ export default function DashboardLayout({
             
             {/* THE BELL ICON */}
             <button 
-              onClick={() => setIsPanelOpen(!isPanelOpen)}
+              onClick={() => {
+                setIsPanelOpen(!isPanelOpen);
+                setIsProfileOpen(false); // Closes profile if it was open
+              }}
               className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -191,8 +196,14 @@ export default function DashboardLayout({
               )}
             </button>
 
-            {/* THE PROFILE SECTION (Avatar + Name with Fallback) */}
-            <div className="flex items-center gap-3 pl-2 sm:pl-4 sm:border-l border-gray-100 cursor-pointer group">
+            {/* THE PROFILE BUTTON (Now Clickable!) */}
+            <div 
+              onClick={() => {
+                setIsProfileOpen(!isProfileOpen);
+                setIsPanelOpen(false); // Closes notifications if they were open
+              }}
+              className="flex items-center gap-3 pl-2 sm:pl-4 sm:border-l border-gray-100 cursor-pointer group"
+            >
               <span className="hidden md:block text-sm font-bold text-gray-700 group-hover:text-blue-600 transition-colors">
                 {user?.displayName || user?.email?.split('@')[0] || "My Account"}
               </span>
@@ -206,9 +217,7 @@ export default function DashboardLayout({
           {/* --- NOTIFICATION DROPDOWN PANEL --- */}
           {isPanelOpen && (
             <>
-              {/* Invisible backdrop to click away and close */}
               <div className="fixed inset-0 z-40" onClick={() => setIsPanelOpen(false)}></div>
-              
               <div className="absolute top-16 right-4 md:right-8 w-80 max-h-[80vh] overflow-y-auto bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 animate-in slide-in-from-top-4 fade-in duration-200">
                 <div className="p-4 border-b border-gray-50 flex justify-between items-center sticky top-0 bg-white/90 backdrop-blur-md rounded-t-3xl">
                   <h3 className="font-bold text-gray-900">Notifications</h3>
@@ -222,7 +231,7 @@ export default function DashboardLayout({
                 <div className="divide-y divide-gray-50">
                   {notifications.length === 0 ? (
                     <div className="p-8 text-center text-gray-400 font-medium text-sm">
-                      You're all caught up! 🍃
+                      You&apos;re all caught up! 🍃
                     </div>
                   ) : (
                     notifications.map((notif) => (
@@ -250,6 +259,49 @@ export default function DashboardLayout({
               </div>
             </>
           )}
+
+          {/* --- BRAND NEW: PROFILE DROPDOWN PANEL --- */}
+          {isProfileOpen && (
+            <>
+              {/* Invisible backdrop to click away and close */}
+              <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
+              
+              <div className="absolute top-16 right-4 md:right-8 w-56 bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 animate-in slide-in-from-top-4 fade-in duration-200 py-2">
+                
+                {/* User Info Header */}
+                <div className="px-4 py-3 border-b border-gray-50 mb-1">
+                  <p className="text-sm font-bold text-gray-900 truncate">{user?.displayName || "My Account"}</p>
+                  <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
+                </div>
+                
+                {/* Settings Link (You can build this page later!) */}
+                <Link 
+                  href="/dashboard/settings" 
+                  onClick={() => setIsProfileOpen(false)}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Account Settings
+                </Link>
+
+                {/* Secure Log Out Button */}
+                <button 
+                  onClick={handleLogout}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors mt-1 border-t border-gray-50 pt-3"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Log Out
+                </button>
+
+              </div>
+            </>
+          )}
+
         </div>
       </header>
 

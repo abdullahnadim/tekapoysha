@@ -20,15 +20,18 @@ export default function SavingsPlanner() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modal States
+  // Modal & UI States
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [fundGoalId, setFundGoalId] = useState<string | null>(null);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  
+  // 👇 NEW: Premium Toast State
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Form States
   const [newGoal, setNewGoal] = useState({ name: "", targetAmount: "", deadlineDate: "", contributionFrequency: "Monthly" });
   const [fundAmount, setFundAmount] = useState("");
-  const [fundAccount, setFundAccount] = useState("Bank"); // <-- NEW: For Smart Sync
+  const [fundAccount, setFundAccount] = useState("Bank"); 
 
   // --- REAL-TIME FIREBASE CONNECTION ---
   useEffect(() => {
@@ -47,6 +50,16 @@ export default function SavingsPlanner() {
 
     return () => unsubscribe();
   }, [user]);
+
+  // 👇 NEW: Auto-dismiss Toast after 3 seconds
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   // --- THE MATH BRAIN ---
   const calculateRequiredContribution = (target: number, current: number, deadline: string, freq: string) => {
@@ -80,12 +93,12 @@ export default function SavingsPlanner() {
       });
       setIsCreateOpen(false);
       setNewGoal({ name: "", targetAmount: "", deadlineDate: "", contributionFrequency: "Monthly" });
+      setToastMessage("Goal created successfully!");
     } catch (error) {
       console.error("Error creating goal:", error);
     }
   };
 
-  // 👇 THE MAGIC HAPPENS HERE: Smart Sync + Notifications
   const handleAddFunds = async (e: React.FormEvent) => {
     e.preventDefault();
     const goalToUpdate = goals.find(g => g.id === fundGoalId);
@@ -100,25 +113,19 @@ export default function SavingsPlanner() {
         currentSaved: goalToUpdate.currentSaved + amountToAdd
       });
 
-      // 2. SMART SYNC: Create a dashboard transaction to deduct the money
+      // 2. SMART SYNC: Create a dashboard transaction
       await addDoc(collection(db, "transactions"), {
         userId: user.uid,
         amount: amountToAdd,
-        type: "expense", // Deducting from available cash
+        type: "expense",
         category: `Savings: ${goalToUpdate.name}`,
         account: fundAccount,
         date: new Date(),
         description: `Deposited into ${goalToUpdate.name} goal`
       });
 
-      // 3. NOTIFICATION SYSTEM: Fire a celebratory alert to the Bell Icon
-      await addDoc(collection(db, "notifications"), {
-        userId: user.uid,
-        title: "Savings Boost! 🚀",
-        message: `You successfully added ৳ ${amountToAdd.toLocaleString('en-IN')} to your ${goalToUpdate.name} goal.`,
-        isRead: false,
-        date: new Date()
-      });
+      // 👇 3. THE PREMIUM UPGRADE: Trigger the sleek Toast instead of the Bell notification!
+      setToastMessage(`Awesome! Added ৳ ${amountToAdd.toLocaleString('en-IN')} to ${goalToUpdate.name} 🚀`);
 
       // Reset Modal
       setFundGoalId(null);
@@ -142,6 +149,7 @@ export default function SavingsPlanner() {
         contributionFrequency: editingGoal.contributionFrequency,
       });
       setEditingGoal(null);
+      setToastMessage("Goal updated!");
     } catch (error) {
       console.error("Error updating goal:", error);
     }
@@ -151,6 +159,7 @@ export default function SavingsPlanner() {
     if (!window.confirm("Are you sure you want to delete this goal? This action cannot be undone.")) return;
     try {
       await deleteDoc(doc(db, "goals", id));
+      setToastMessage("Goal deleted.");
     } catch (error) {
       console.error("Error deleting goal:", error);
     }
@@ -159,8 +168,8 @@ export default function SavingsPlanner() {
   if (loading) return <div className="p-8 animate-pulse text-gray-500">Loading your future...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
-      <div className="max-w-5xl mx-auto space-y-8">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans pb-32">
+      <div className="max-w-5xl mx-auto space-y-8 relative">
         
         {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
@@ -324,7 +333,7 @@ export default function SavingsPlanner() {
           </div>
         )}
 
-        {/* --- ADD FUNDS MODAL (Upgraded) --- */}
+        {/* --- ADD FUNDS MODAL --- */}
         {fundGoalId && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
@@ -335,7 +344,6 @@ export default function SavingsPlanner() {
                   <input type="number" required value={fundAmount} onChange={e => setFundAmount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-green-500 text-xl font-bold" placeholder="0" />
                 </div>
                 
-                {/* 👇 NEW: Account selector for Smart Sync */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Deduct from Account</label>
                   <select value={fundAccount} onChange={e => setFundAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-blue-500 text-gray-700 font-medium">
@@ -356,6 +364,21 @@ export default function SavingsPlanner() {
         )}
 
       </div>
+
+      {/* 👇 NEW: PREMIUM TOAST NOTIFICATION UI */}
+      {toastMessage && (
+        <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
+          <div className="bg-gray-900 text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 font-medium text-sm border border-gray-700">
+            <span className="text-green-400 bg-green-400/10 p-1 rounded-full">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+            {toastMessage}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
