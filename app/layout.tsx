@@ -8,12 +8,15 @@ const inter = Inter({ subsets: ["latin"] });
 
 // --- PREMIUM SEO & SOCIAL SHARING METADATA ---
 export const metadata: Metadata = {
+  // 👇 THIS IS THE FIX: Added metadataBase to resolve the warning and social images 👇
+  metadataBase: new URL("https://tekapoysha.vercel.app"),
+  
   title: "TekaPoysha | The Premium Money Tracker & Debt Eliminator",
   description: "Stop guessing where your money goes. TekaPoysha is the ultimate money manager to track savings, eliminate debt, and build financial freedom.",
   keywords: ["Money Tracker", "Money Manager", "Money App", "TekaPoysha", "Teka Poysha", "Debt Snowball", "Bangladesh Finance"],
   authors: [{ name: "TekaPoysha Team" }],
   
-  // PWA Settings (Kept from your code!)
+  // PWA Settings
   manifest: "/manifest.json", 
   appleWebApp: {
     capable: true,
@@ -25,11 +28,11 @@ export const metadata: Metadata = {
   openGraph: {
     title: "TekaPoysha | Master Your Money",
     description: "The ultimate money tracker to crush debt and gamify your savings.",
-    url: "https://tekapoysha.vercel.app", // Replace with your real domain later
+    url: "https://tekapoysha.vercel.app", 
     siteName: "TekaPoysha",
     images: [
       {
-        url: "/og-image.png", // Create a cool 1200x630 promo image and put it in your public folder!
+        url: "/og-image.png", // Next.js will pull this from your 'public' folder
         width: 1200,
         height: 630,
         alt: "TekaPoysha Dashboard Preview",
