@@ -8,7 +8,6 @@ const inter = Inter({ subsets: ["latin"] });
 
 // --- PREMIUM SEO & SOCIAL SHARING METADATA ---
 export const metadata: Metadata = {
-  // 👇 THIS IS THE FIX: Added metadataBase to resolve the warning and social images 👇
   metadataBase: new URL("https://tekapoysha.vercel.app"),
   
   title: "TekaPoysha | The Premium Money Tracker & Debt Eliminator",
@@ -48,6 +47,11 @@ export const metadata: Metadata = {
     title: "TekaPoysha | Master Your Money",
     description: "The ultimate money tracker to crush debt and gamify your savings.",
     images: ["/og-image.png"],
+  },
+
+  // 👇 PASTE YOUR FACEBOOK APP ID HERE 👇
+  other: {
+    "fb:app_id": "2045018896050720",
   },
 };
 
