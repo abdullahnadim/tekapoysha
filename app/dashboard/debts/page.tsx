@@ -14,8 +14,13 @@ interface Debt {
   totalAmount: number;
   amountPaid: number;
   dueDate: string;
-  phone?: string;  // NEW: Added for WhatsApp
-  reason?: string; // NEW: Added for context
+  phone?: string; 
+  reason?: string; 
+}
+
+interface Wallet {
+  id: string;
+  name: string;
 }
 
 export default function DebtsPage() {
@@ -23,29 +28,51 @@ export default function DebtsPage() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Wallets State
+  const [wallets, setWallets] = useState<Wallet[]>([]);
+
   // Modal States
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [paymentDebtId, setPaymentDebtId] = useState<string | null>(null);
+  const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
   
-  // Form States (Updated with phone and reason)
+  // Form States
   const [newDebt, setNewDebt] = useState({ person: "", type: "receivable", totalAmount: "", dueDate: "", phone: "", reason: "" });
   const [paymentAmount, setPaymentAmount] = useState("");
   
-  const [debtAccount, setDebtAccount] = useState("Cash");
-  const [paymentAccount, setPaymentAccount] = useState("Cash");
+  const [debtAccount, setDebtAccount] = useState("");
+  const [paymentAccount, setPaymentAccount] = useState("");
   const [syncToDashboard, setSyncToDashboard] = useState(true);
 
-  // --- REAL-TIME FIREBASE CONNECTION ---
+  // --- REAL-TIME FIREBASE CONNECTION (Debts & Wallets) ---
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, "debts"), where("userId", "==", user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+
+    // Fetch Debts
+    const qDebts = query(collection(db, "debts"), where("userId", "==", user.uid));
+    const unsubDebts = onSnapshot(qDebts, (snapshot) => {
       const fetchedDebts: Debt[] = [];
       snapshot.forEach((doc) => fetchedDebts.push({ id: doc.id, ...doc.data() } as Debt));
       setDebts(fetchedDebts);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    // Fetch Premium Wallets
+    const qWallets = query(collection(db, "paymentMethods"), where("userId", "==", user.uid));
+    const unsubWallets = onSnapshot(qWallets, (snapshot) => {
+      const fetchedWallets: Wallet[] = [];
+      snapshot.forEach((doc) => fetchedWallets.push({ id: doc.id, name: doc.data().name }));
+      setWallets(fetchedWallets);
+      if (fetchedWallets.length > 0) {
+        setDebtAccount(fetchedWallets[0].name);
+        setPaymentAccount(fetchedWallets[0].name);
+      }
+    });
+
+    return () => {
+      unsubDebts();
+      unsubWallets();
+    };
   }, [user]);
 
   // --- SAFE CALCULATIONS ---
@@ -63,7 +90,7 @@ export default function DebtsPage() {
     
     const remainingAmount = debt.totalAmount - debt.amountPaid;
     const reasonText = debt.reason ? ` for ${debt.reason}` : '';
-    const message = `Hey ${debt.person} Chomu! ei ৳${remainingAmount.toLocaleString()} pending${reasonText}. taka ta kobe dibi?`;
+    const message = `Hey ${debt.person}! Just a quick reminder about the ৳${remainingAmount.toLocaleString()} pending${reasonText}. Let me know when you can clear it up!`;
     
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
@@ -80,7 +107,7 @@ export default function DebtsPage() {
         userId: user.uid,
       });
 
-      if (syncToDashboard) {
+      if (syncToDashboard && debtAccount) {
         await addDoc(collection(db, "transactions"), {
           userId: user.uid,
           amount: Number(newDebt.totalAmount),
@@ -100,6 +127,26 @@ export default function DebtsPage() {
     }
   };
 
+  const handleUpdateDebt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !editingDebt) return;
+    try {
+      const debtRef = doc(db, "debts", editingDebt.id);
+      await updateDoc(debtRef, {
+        person: editingDebt.person,
+        reason: editingDebt.reason || "",
+        phone: editingDebt.phone || "",
+        totalAmount: Number(editingDebt.totalAmount),
+        dueDate: editingDebt.dueDate,
+        type: editingDebt.type,
+      });
+      setEditingDebt(null);
+    } catch (error) {
+      console.error("Error updating debt:", error);
+      alert("Failed to update debt.");
+    }
+  };
+
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -111,15 +158,17 @@ export default function DebtsPage() {
       const currentPaid = Number(targetDebt.amountPaid) || 0;
       await updateDoc(debtRef, { amountPaid: currentPaid + Number(paymentAmount) });
 
-      await addDoc(collection(db, "transactions"), {
-        userId: user.uid,
-        amount: Number(paymentAmount),
-        type: targetDebt.type === "payable" ? "expense" : "income",
-        category: targetDebt.type === "payable" ? "Debt Repayment" : "Debt Collected",
-        account: paymentAccount,
-        date: new Date(),
-        description: `Payment to/from ${targetDebt.person}`
-      });
+      if (paymentAccount) {
+        await addDoc(collection(db, "transactions"), {
+          userId: user.uid,
+          amount: Number(paymentAmount),
+          type: targetDebt.type === "payable" ? "expense" : "income",
+          category: targetDebt.type === "payable" ? "Debt Repayment" : "Debt Collected",
+          account: paymentAccount,
+          date: new Date(),
+          description: `Payment to/from ${targetDebt.person}`
+        });
+      }
 
       setPaymentDebtId(null);
       setPaymentAmount("");
@@ -141,7 +190,7 @@ export default function DebtsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
         
         {/* HEADER */}
         <div className="flex justify-between items-center bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
@@ -168,6 +217,12 @@ export default function DebtsPage() {
 
         {/* DEBT GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {debts.length === 0 ? (
+            <div className="col-span-full p-12 text-center text-gray-500 font-bold border-2 border-dashed border-gray-200 rounded-3xl">
+              No active debts! You are all clear. 🍻
+            </div>
+          ) : null}
+
           {debts.map((debt) => {
             const isReceivable = debt.type === "receivable";
             const paid = Number(debt.amountPaid) || 0;
@@ -176,7 +231,7 @@ export default function DebtsPage() {
             const progress = total > 0 ? Math.min((paid / total) * 100, 100) : 0;
 
             return (
-              <div key={debt.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between group hover:shadow-md transition-all">
+              <div key={debt.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all">
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <div>
@@ -186,9 +241,15 @@ export default function DebtsPage() {
                       </span>
                       {debt.reason && <p className="text-xs text-gray-500 mt-2 font-medium">Reason: {debt.reason}</p>}
                     </div>
-                    <button onClick={() => handleDeleteDebt(debt.id)} className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100">
-                      🗑
-                    </button>
+                    {/* 👇 FIX: Buttons are always visible now 👇 */}
+                    <div className="flex gap-1">
+                      <button onClick={() => setEditingDebt(debt)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Record">
+                        ✎
+                      </button>
+                      <button onClick={() => handleDeleteDebt(debt.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Record">
+                        🗑
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mb-2">
@@ -209,7 +270,6 @@ export default function DebtsPage() {
                   <div className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-xl text-center">Fully Settled ✓</div>
                 ) : (
                   <div className="flex gap-2 mt-2">
-                    {/* NEW: WhatsApp Remind Button */}
                     {isReceivable && remaining > 0 && debt.phone && (
                       <button 
                         onClick={() => sendWhatsApp(debt)}
@@ -235,7 +295,7 @@ export default function DebtsPage() {
         {/* --- CREATE MODAL --- */}
         {isCreateOpen && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl h-[90vh] overflow-y-auto animate-in zoom-in-95">
               <h2 className="text-2xl font-bold mb-6 text-gray-900">Add Debt Record</h2>
               <form onSubmit={handleCreateDebt} className="space-y-4">
                 <div>
@@ -243,7 +303,6 @@ export default function DebtsPage() {
                   <input type="text" required value={newDebt.person} onChange={e => setNewDebt({...newDebt, person: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" placeholder="Name" />
                 </div>
                 
-                {/* NEW: Reason Field */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Reason (Optional)</label>
                   <input type="text" value={newDebt.reason} onChange={e => setNewDebt({...newDebt, reason: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" placeholder="e.g. Dinner, Rent" />
@@ -257,7 +316,6 @@ export default function DebtsPage() {
                   </select>
                 </div>
                 
-                {/* NEW: Phone Field (Only shows if they owe you) */}
                 {newDebt.type === "receivable" && (
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">WhatsApp Number (Optional)</label>
@@ -268,39 +326,88 @@ export default function DebtsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Total Amount</label>
-                    <input type="number" required value={newDebt.totalAmount} onChange={e => setNewDebt({...newDebt, totalAmount: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
+                    <input type="number" required min="1" value={newDebt.totalAmount} onChange={e => setNewDebt({...newDebt, totalAmount: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">Select Account</label>
                     <select value={debtAccount} onChange={e => setDebtAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
-                      <option value="Cash">Cash</option>
-                      <option value="Bank">Bank</option>
-                      <option value="bKash">bKash</option>
+                      {wallets.length === 0 ? <option value="">No Wallets Found</option> : null}
+                      {wallets.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
                     </select>
                   </div>
                 </div>
 
                 <div>
                   <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl mt-4 mb-4">
-                  <input 
-                    type="checkbox" 
-                    id="syncCheck"
-                    checked={syncToDashboard}
-                    onChange={(e) => setSyncToDashboard(e.target.checked)}
-                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
-                  />
-                  <label htmlFor="syncCheck" className="text-sm font-bold text-blue-900 cursor-pointer">
-                    Sync to Dashboard Balances
-                    <span className="block text-xs font-medium text-blue-700 mt-0.5">Uncheck if you already spent this money previously.</span>
-                  </label>
-                </div>
+                    <input 
+                      type="checkbox" 
+                      id="syncCheck"
+                      checked={syncToDashboard}
+                      onChange={(e) => setSyncToDashboard(e.target.checked)}
+                      className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                    />
+                    <label htmlFor="syncCheck" className="text-sm font-bold text-blue-900 cursor-pointer">
+                      Sync to Dashboard Balances
+                      <span className="block text-xs font-medium text-blue-700 mt-0.5">Uncheck if you already spent this money previously.</span>
+                    </label>
+                  </div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Due Date</label>
                   <input type="date" required value={newDebt.dueDate} onChange={e => setNewDebt({...newDebt, dueDate: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
                 </div>
 
                 <div className="flex gap-4 mt-6">
-                  <button type="button" onClick={() => setIsCreateOpen(false)} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Cancel</button>
-                  <button type="submit" className="flex-1 py-3 bg-gray-900 text-white font-bold rounded-xl">Create</button>
+                  <button type="button" onClick={() => setIsCreateOpen(false)} className="flex-1 py-3 bg-gray-100 font-bold text-gray-600 hover:bg-gray-200 transition-colors rounded-xl">Cancel</button>
+                  <button type="submit" className="flex-1 py-3 bg-gray-900 text-white font-bold hover:bg-black transition-colors rounded-xl">Create</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- EDIT MODAL --- */}
+        {editingDebt && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl h-[90vh] overflow-y-auto animate-in zoom-in-95">
+              <h2 className="text-2xl font-bold mb-6 text-gray-900">Edit Record</h2>
+              <form onSubmit={handleUpdateDebt} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Who is involved?</label>
+                  <input type="text" required value={editingDebt.person} onChange={e => setEditingDebt({...editingDebt, person: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" placeholder="Name" />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Reason</label>
+                  <input type="text" value={editingDebt.reason} onChange={e => setEditingDebt({...editingDebt, reason: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" placeholder="e.g. Dinner, Rent" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Record Type</label>
+                  <select value={editingDebt.type} onChange={e => setEditingDebt({...editingDebt, type: e.target.value as any})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
+                    <option value="receivable">They owe me money</option>
+                    <option value="payable">I owe them money</option>
+                  </select>
+                </div>
+                
+                {editingDebt.type === "receivable" && (
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">WhatsApp Number</label>
+                    <input type="tel" value={editingDebt.phone} onChange={e => setEditingDebt({...editingDebt, phone: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none focus:border-blue-500" placeholder="e.g. 017..." />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Total Amount (৳)</label>
+                  <input type="number" required min="1" value={editingDebt.totalAmount} onChange={e => setEditingDebt({...editingDebt, totalAmount: Number(e.target.value)})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Due Date</label>
+                  <input type="date" required value={editingDebt.dueDate} onChange={e => setEditingDebt({...editingDebt, dueDate: e.target.value})} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none" />
+                </div>
+
+                <div className="flex gap-4 mt-6">
+                  <button type="button" onClick={() => setEditingDebt(null)} className="flex-1 py-3 bg-gray-100 font-bold text-gray-600 hover:bg-gray-200 transition-colors rounded-xl">Cancel</button>
+                  <button type="submit" className="flex-1 py-3 bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors rounded-xl">Save Changes</button>
                 </div>
               </form>
             </div>
@@ -310,24 +417,23 @@ export default function DebtsPage() {
         {/* --- ADD PAYMENT MODAL --- */}
         {paymentDebtId && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
               <h2 className="text-2xl font-bold mb-6 text-gray-900">Log Payment</h2>
               <form onSubmit={handleAddPayment} className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Amount (৳)</label>
-                  <input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none text-xl font-bold" placeholder="0" />
+                  <input type="number" required min="1" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none text-xl font-bold" placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Account Used</label>
-                  <select value={paymentAccount} onChange={e => setPaymentAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none">
-                    <option value="Cash">Cash</option>
-                    <option value="Bank">Bank</option>
-                    <option value="bKash">bKash</option>
+                  <select value={paymentAccount} onChange={e => setPaymentAccount(e.target.value)} className="w-full rounded-xl border bg-gray-50 px-4 py-3 outline-none font-bold text-gray-700">
+                    {wallets.length === 0 ? <option value="">No Wallets Found</option> : null}
+                    {wallets.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
                   </select>
                 </div>
                 <div className="flex gap-4 mt-6">
-                  <button type="button" onClick={() => setPaymentDebtId(null)} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Cancel</button>
-                  <button type="submit" className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl">Save Payment</button>
+                  <button type="button" onClick={() => setPaymentDebtId(null)} className="flex-1 py-3 bg-gray-100 font-bold text-gray-600 hover:bg-gray-200 transition-colors rounded-xl">Cancel</button>
+                  <button type="submit" className="flex-1 py-3 bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors rounded-xl">Save Payment</button>
                 </div>
               </form>
             </div>
