@@ -371,7 +371,7 @@ export default function Dashboard() {
                         {txn.type === 'income' ? '+' : txn.type === 'transfer' ? '' : '-'} {showBalances ? `৳ ${Number(txn.amount).toLocaleString('en-IN')}` : '••••'}
                       </p>
                     </div>
-                    <div className="hidden md:flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       <button onClick={() => setEditingTxn({...txn, date: formatDateForInput(txn.date)})} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit">✎</button>
                       <button onClick={() => txn.id && handleDelete(txn.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">🗑</button>
                     </div>

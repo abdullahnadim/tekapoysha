@@ -231,7 +231,7 @@ export default function DebtsPage() {
             const progress = total > 0 ? Math.min((paid / total) * 100, 100) : 0;
 
             return (
-              <div key={debt.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all">
+              <div key={debt.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between group hover:shadow-md transition-all">
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <div>
@@ -241,8 +241,7 @@ export default function DebtsPage() {
                       </span>
                       {debt.reason && <p className="text-xs text-gray-500 mt-2 font-medium">Reason: {debt.reason}</p>}
                     </div>
-                    {/* 👇 FIX: Buttons are always visible now 👇 */}
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       <button onClick={() => setEditingDebt(debt)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Record">
                         ✎
                       </button>

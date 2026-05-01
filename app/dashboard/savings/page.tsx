@@ -206,7 +206,7 @@ export default function SavingsPlanner() {
                           Target: {new Date(goal.deadlineDate).toLocaleDateString('en-GB')}
                         </span>
                       </div>
-                      <div className="flex gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ...">
                         <button onClick={() => setEditingGoal(goal)} className="p-2 text-gray-400 hover:text-blue-600 rounded-full hover:bg-blue-50 transition-colors" title="Edit Goal">
                           ✎
                         </button>
