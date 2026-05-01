@@ -7,6 +7,10 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/components/auth/AuthContext";
 import { useRouter } from "next/navigation";
 
+// Firebase Imports
+import { db } from "@/lib/firebase/config";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+
 export default function HomePage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -16,6 +20,14 @@ export default function HomePage() {
   const [weeklySave, setWeeklySave] = useState(500);
   const yearlyTotal = weeklySave * 52;
   
+  // Contact Form States
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactType, setContactType] = useState("General Inquiry");
+  const [contactMessage, setContactMessage] = useState("");
+  const [isSubmittingContact, setIsSubmittingContact] = useState(false);
+  const [contactSuccess, setContactSuccess] = useState(false);
+
   // Auto-Redirect logged-in users to the dashboard
   useEffect(() => {
     if (user) {
@@ -35,6 +47,54 @@ export default function HomePage() {
   };
 
   const projectedBadge = getBadge(yearlyTotal);
+
+  // --- UPDATED: CONTACT FORM SUBMIT HANDLER ---
+  const handleContactSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contactMessage.trim() || !contactEmail.trim()) return;
+
+    setIsSubmittingContact(true);
+    try {
+      // 1. Save to Firebase Database
+      await addDoc(collection(db, "feedback"), {
+        userId: "anonymous_landing", 
+        userEmail: contactEmail,
+        userName: contactName || "Anonymous",
+        type: contactType,
+        message: contactMessage,
+        status: "unread",
+        source: "landing_page",
+        createdAt: serverTimestamp(),
+      });
+
+      // 2. Trigger the Email API!
+      await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: contactName || "Anonymous",
+          email: contactEmail,
+          type: contactType,
+          message: contactMessage,
+        }),
+      });
+      
+      setContactSuccess(true);
+      setContactMessage("");
+      setContactName("");
+      setContactEmail("");
+      
+      // Reset success message after 4 seconds
+      setTimeout(() => setContactSuccess(false), 4000);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      alert("Failed to send message. Please try again.");
+    } finally {
+      setIsSubmittingContact(false);
+    }
+  };
 
   // Show a sleek loading state while checking auth
   if (isChecking || user) {
@@ -252,6 +312,93 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* --- BRAND NEW: CONTACT & FEEDBACK SECTION --- */}
+      <section className="py-24 px-6 bg-gray-50 border-t border-gray-100 relative overflow-hidden">
+        <div className="max-w-4xl mx-auto relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+          >
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-5xl font-black text-gray-900 tracking-tight mb-4">
+                Get in <span className="text-blue-600">Touch</span>
+              </h2>
+              <p className="text-gray-500 font-medium">Have a suggestion, found a bug, or just want to say hi? Drop a message below.</p>
+            </div>
+
+            <div className="bg-white p-6 md:p-10 rounded-[32px] shadow-sm border border-gray-100">
+              {contactSuccess ? (
+                <div className="bg-green-50 text-green-700 p-8 rounded-2xl border border-green-100 text-center font-bold animate-in zoom-in-95">
+                  <span className="text-4xl block mb-3">🎉</span>
+                  Message sent successfully! We'll get back to you soon.
+                </div>
+              ) : (
+                <form onSubmit={handleContactSubmit} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Your Name</label>
+                      <input 
+                        type="text" 
+                        value={contactName} 
+                        onChange={(e) => setContactName(e.target.value)} 
+                        className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 outline-none focus:border-blue-500 focus:bg-white transition-colors font-medium text-gray-700" 
+                        placeholder="e.g. Shakib" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Email Address *</label>
+                      <input 
+                        type="email" 
+                        required 
+                        value={contactEmail} 
+                        onChange={(e) => setContactEmail(e.target.value)} 
+                        className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 outline-none focus:border-blue-500 focus:bg-white transition-colors font-medium text-gray-700" 
+                        placeholder="your@email.com" 
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Subject</label>
+                    <select 
+                      value={contactType} 
+                      onChange={(e) => setContactType(e.target.value)} 
+                      className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 outline-none focus:border-blue-500 focus:bg-white transition-colors font-medium text-gray-700 appearance-none"
+                    >
+                      <option value="General Inquiry">👋 General Inquiry</option>
+                      <option value="Feature Request">💡 Feature Request</option>
+                      <option value="Bug Report">🐛 Bug Report</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Message *</label>
+                    <textarea 
+                      required 
+                      rows={5} 
+                      value={contactMessage} 
+                      onChange={(e) => setContactMessage(e.target.value)} 
+                      placeholder="How can we help you?" 
+                      className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 outline-none focus:border-blue-500 focus:bg-white transition-colors font-medium text-gray-700 resize-none"
+                    ></textarea>
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    disabled={isSubmittingContact || !contactMessage.trim() || !contactEmail.trim()} 
+                    className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 disabled:bg-gray-300 disabled:shadow-none disabled:transform-none disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingContact ? "Sending..." : "Send Message"}
+                  </button>
+                </form>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* --- PREMIUM FOOTER WITH SOCIALS --- */}
       <footer className="bg-gray-900 border-t border-white/10 pt-16 pb-8 px-6 relative overflow-hidden">
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[300px] h-[100px] bg-blue-600/20 blur-[80px] rounded-full pointer-events-none"></div>
@@ -277,7 +424,7 @@ export default function HomePage() {
               <span className="text-lg font-black tracking-tighter text-white">TekaPoysha</span>
             </div>
 
-            {/* --- NEW: SOCIAL MEDIA LINKS --- */}
+            {/* --- SOCIAL MEDIA LINKS --- */}
             <div className="flex items-center gap-5">
               
               {/* Facebook */}
