@@ -182,7 +182,7 @@ export default function DashboardLayout({
             <button 
               onClick={() => {
                 setIsPanelOpen(!isPanelOpen);
-                setIsProfileOpen(false); // Closes profile if it was open
+                setIsProfileOpen(false);
               }}
               className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
             >
@@ -196,19 +196,23 @@ export default function DashboardLayout({
               )}
             </button>
 
-            {/* THE PROFILE BUTTON */}
+            {/* THE NAVBAR PROFILE BUTTON */}
             <div 
               onClick={() => {
                 setIsProfileOpen(!isProfileOpen);
-                setIsPanelOpen(false); // Closes notifications if they were open
+                setIsPanelOpen(false);
               }}
               className="flex items-center gap-3 pl-2 sm:pl-4 sm:border-l border-gray-100 cursor-pointer group"
             >
               <span className="hidden md:block text-sm font-bold text-gray-700 group-hover:text-blue-600 transition-colors">
                 {user?.displayName || user?.email?.split('@')[0] || "My Account"}
               </span>
-              <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-full flex items-center justify-center text-white font-bold shadow-sm group-hover:shadow-md transition-all">
-                {user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}
+              <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-full flex items-center justify-center text-white font-bold shadow-sm group-hover:shadow-md transition-all overflow-hidden shrink-0">
+                {user?.photoURL ? (
+                  <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')
+                )}
               </div>
             </div>
 
@@ -260,20 +264,31 @@ export default function DashboardLayout({
             </>
           )}
 
-          {/* --- PROFILE DROPDOWN PANEL --- */}
+          {/* --- PROFILE DROPDOWN PANEL (NO MANUAL UPLOAD) --- */}
           {isProfileOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
               
-              <div className="absolute top-16 right-4 md:right-8 w-60 bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 animate-in slide-in-from-top-4 fade-in duration-200 py-2">
+              <div className="absolute top-16 right-4 md:right-8 w-64 bg-white rounded-3xl shadow-2xl border border-gray-100 z-50 animate-in slide-in-from-top-4 fade-in duration-200 py-2">
                 
                 {/* User Info Header */}
-                <div className="px-4 py-3 border-b border-gray-50 mb-1">
-                  <p className="text-sm font-bold text-gray-900 truncate">{user?.displayName || "My Account"}</p>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
+                <div className="px-4 py-4 border-b border-gray-50 mb-1 flex items-center gap-3">
+                  
+                  {/* Clean, Non-Interactive Profile Picture */}
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold shadow-sm overflow-hidden bg-gradient-to-tr from-blue-600 to-blue-400 shrink-0">
+                    {user?.photoURL ? (
+                      <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span className="text-xl">{user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}</span>
+                    )}
+                  </div>
+
+                  <div className="overflow-hidden">
+                    <p className="text-sm font-bold text-gray-900 truncate">{user?.displayName || "My Account"}</p>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
+                  </div>
                 </div>
 
-                {/* NEW: Contact & Feedback */}
                 <Link 
                   href="/dashboard/contact" 
                   onClick={() => setIsProfileOpen(false)}
@@ -283,7 +298,6 @@ export default function DashboardLayout({
                   Contact & Feedback
                 </Link>
 
-                {/* NEW: Support Developer */}
                 <Link 
                   href="/dashboard/support" 
                   onClick={() => setIsProfileOpen(false)}
@@ -293,7 +307,6 @@ export default function DashboardLayout({
                   Support Developer
                 </Link>
                 
-                {/* Account Settings Link */}
                 <Link 
                   href="/dashboard/settings" 
                   onClick={() => setIsProfileOpen(false)}
@@ -303,7 +316,6 @@ export default function DashboardLayout({
                   Account Settings
                 </Link>
 
-                {/* Secure Log Out Button */}
                 <button 
                   onClick={handleLogout}
                   className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors mt-1 border-t border-gray-50 pt-3"
