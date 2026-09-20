@@ -61,7 +61,7 @@ export default function ExpenseDonut({ transactions }: ExpenseDonutProps) {
             ))}
           </Pie>
           <Tooltip 
-            formatter={(value: number) => [formatCurrency(value), 'Amount']}
+            formatter={(value: any) => [formatCurrency(Number(value)), 'Amount']}
             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
           />
           <Legend 
