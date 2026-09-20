@@ -329,6 +329,20 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* --- LINK TO DEDICATED CREDIT CARDS HUB --- */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-3xl shadow-md p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-500">
+          <div>
+            <h3 className="text-xl font-bold">Credit Card Management</h3>
+            <p className="text-blue-100 text-sm mt-1">Track utilization, view limits, and manage your credit profiles.</p>
+          </div>
+          <Link 
+            href="/dashboard/credit-cards" 
+            className="w-full md:w-auto px-6 py-3 bg-white text-blue-700 font-bold rounded-xl shadow-sm hover:shadow-md hover:bg-blue-50 transition-all text-center whitespace-nowrap"
+          >
+            Manage Cards &rarr;
+          </Link>
+        </div>
+
         {/* TRANSACTIONS LIST */}
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-white sticky top-0 z-10">

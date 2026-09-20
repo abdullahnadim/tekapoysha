@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthContext";
@@ -60,33 +59,34 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "TekaPoysha",
+    "alternateName": "Teka Poysha",
+    "applicationCategory": "FinanceApplication",
+    "operatingSystem": "Web, iOS, Android",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "BDT"
+    },
+    "description": "TekaPoysha is a premium money manager and money tracker application designed to help users crush debt with the Snowball method and gamify their savings goals.",
+    "creator": {
+      "@type": "Organization",
+      "name": "TekaPoysha"
+    }
+  };
+
   return (
     <html lang="en">
       <body className={inter.className}>
         
         {/* INVISIBLE SEO SUPER-WEAPON (JSON-LD) */}
-        <Script id="tekapoysha-schema" type="application/ld+json" strategy="beforeInteractive">
-          {`
-            {
-              "@context": "https://schema.org",
-              "@type": "SoftwareApplication",
-              "name": "TekaPoysha",
-              "alternateName": "Teka Poysha",
-              "applicationCategory": "FinanceApplication",
-              "operatingSystem": "Web, iOS, Android",
-              "offers": {
-                "@type": "Offer",
-                "price": "0",
-                "priceCurrency": "BDT"
-              },
-              "description": "TekaPoysha is a premium money manager and money tracker application designed to help users crush debt with the Snowball method and gamify their savings goals.",
-              "creator": {
-                "@type": "Organization",
-                "name": "TekaPoysha"
-              }
-            }
-          `}
-        </Script>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
 
         <AuthProvider>{children}</AuthProvider>
       </body>

@@ -28,8 +28,9 @@ export default function DebtsPage() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Wallets State
+  // Wallets & Cards State
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [totalCreditDebt, setTotalCreditDebt] = useState(0);
 
   // Modal States
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -44,7 +45,7 @@ export default function DebtsPage() {
   const [paymentAccount, setPaymentAccount] = useState("");
   const [syncToDashboard, setSyncToDashboard] = useState(true);
 
-  // --- REAL-TIME FIREBASE CONNECTION (Debts & Wallets) ---
+  // --- REAL-TIME FIREBASE CONNECTION (Debts, Wallets & Credit Cards) ---
   useEffect(() => {
     if (!user) return;
 
@@ -69,15 +70,27 @@ export default function DebtsPage() {
       }
     });
 
+    // Fetch Credit Card Debt
+    const qCards = query(collection(db, "creditCards"), where("userId", "==", user.uid));
+    const unsubCards = onSnapshot(qCards, (snapshot) => {
+      let cardDebt = 0;
+      snapshot.forEach((doc) => {
+        cardDebt += Number(doc.data().currentBalance) || 0;
+      });
+      setTotalCreditDebt(cardDebt);
+    });
+
     return () => {
       unsubDebts();
       unsubWallets();
+      unsubCards();
     };
   }, [user]);
 
   // --- SAFE CALCULATIONS ---
   const totalReceivable = debts.filter(d => d.type === "receivable").reduce((sum, d) => sum + ((Number(d.totalAmount) || 0) - (Number(d.amountPaid) || 0)), 0);
   const totalPayable = debts.filter(d => d.type === "payable").reduce((sum, d) => sum + ((Number(d.totalAmount) || 0) - (Number(d.amountPaid) || 0)), 0);
+  const grandTotalDebt = totalPayable + totalCreditDebt;
 
   // --- WHATSAPP GENERATOR ---
   const sendWhatsApp = (debt: Debt) => {
@@ -196,22 +209,60 @@ export default function DebtsPage() {
         <div className="flex justify-between items-center bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
           <div>
             <h1 className="text-3xl font-black text-gray-900">Debt Control</h1>
-            <p className="text-gray-500 mt-1 font-medium">Track partial payments and clear your ledgers.</p>
+            <p className="text-gray-500 mt-1 font-medium">Track partial payments, credit card debt, and clear your ledgers.</p>
           </div>
           <button onClick={() => setIsCreateOpen(true)} className="px-6 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800 transition-colors shadow-sm">
             + Add Record
           </button>
         </div>
 
-        {/* SUMMARY CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-green-50/50 p-6 rounded-3xl border border-green-100">
-            <h3 className="text-sm font-bold text-green-800 mb-1">People Owe You (Receivable)</h3>
-            <p className="text-3xl font-black text-green-600">৳ {totalReceivable.toLocaleString('en-IN')}</p>
+        {/* --- PREMIUM TOTAL LIABILITIES HERO --- */}
+        <div className="bg-gradient-to-br from-red-900 to-red-800 p-6 md:p-8 rounded-3xl shadow-lg text-white mb-2 relative overflow-hidden">
+          {/* Decorative background element */}
+          <div className="absolute -top-24 -right-24 w-64 h-64 bg-red-700/30 rounded-full blur-3xl pointer-events-none"></div>
+          
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+            <div>
+              <p className="text-xs font-bold text-red-300 uppercase tracking-widest mb-1.5 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse shadow-[0_0_8px_rgba(248,113,113,0.8)]"></span> 
+                Grand Total Liabilities
+              </p>
+              <h2 className="text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm">
+                ৳ {grandTotalDebt.toLocaleString('en-IN')}
+              </h2>
+            </div>
+            <div className="bg-red-950/40 px-5 py-4 rounded-2xl border border-red-800/50 backdrop-blur-md w-full md:max-w-[300px]">
+              <p className="text-sm text-red-200 font-medium leading-relaxed">
+                This is your combined total debt across personal borrowing and active credit cards.
+              </p>
+            </div>
           </div>
-          <div className="bg-red-50/50 p-6 rounded-3xl border border-red-100">
-            <h3 className="text-sm font-bold text-red-800 mb-1">You Owe (Payable)</h3>
-            <p className="text-3xl font-black text-red-600">৳ {totalPayable.toLocaleString('en-IN')}</p>
+        </div>
+
+        {/* --- SUMMARY BREAKDOWN CARDS (Mobile Optimized) --- */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+          {/* 1. Receivable (Full width on mobile, 1 col on desktop) */}
+          <div className="col-span-2 lg:col-span-1 bg-green-50/50 p-5 md:p-6 rounded-3xl border border-green-100 flex flex-col justify-between">
+            <h3 className="text-xs md:text-sm font-bold text-green-800 mb-1">People Owe You (Receivable)</h3>
+            <p className="text-2xl md:text-3xl font-black text-green-600">৳ {totalReceivable.toLocaleString('en-IN')}</p>
+          </div>
+          
+          {/* 2. Payable (Side-by-side on mobile) */}
+          <div className="col-span-1 bg-red-50/50 p-5 md:p-6 rounded-3xl border border-red-100 flex flex-col justify-between">
+            <h3 className="text-xs md:text-sm font-bold text-red-800 mb-1">You Owe (Personal)</h3>
+            <p className="text-2xl md:text-3xl font-black text-red-600">৳ {totalPayable.toLocaleString('en-IN')}</p>
+          </div>
+
+          {/* 3. Credit Cards (Side-by-side on mobile) */}
+          <div className="col-span-1 bg-orange-50/50 p-5 md:p-6 rounded-3xl border border-orange-100 flex flex-col justify-between relative overflow-hidden">
+            <div className="relative z-10">
+              <h3 className="text-xs md:text-sm font-bold text-orange-800 mb-1">Credit Cards</h3>
+              <p className="text-2xl md:text-3xl font-black text-orange-600">৳ {totalCreditDebt.toLocaleString('en-IN')}</p>
+            </div>
+            {/* Subtle card icon watermark */}
+            <svg className="absolute -bottom-4 -right-4 w-20 h-20 text-orange-200/50 -rotate-12" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zm0 4v12h16V8H4zm16-2H4V6h16v2z" />
+            </svg>
           </div>
         </div>
 
@@ -219,7 +270,7 @@ export default function DebtsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {debts.length === 0 ? (
             <div className="col-span-full p-12 text-center text-gray-500 font-bold border-2 border-dashed border-gray-200 rounded-3xl">
-              No active debts! You are all clear. 🍻
+              No active personal debts! You are all clear. 🍻
             </div>
           ) : null}
 

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth/AuthContext";
 import { updateProfile, updatePassword, signOut, getAuth } from "firebase/auth"; 
 import { useRouter } from "next/navigation"; 
+import Link from "next/link"; // <-- Added Link for routing
 import { db } from "@/lib/firebase/config"; 
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore"; 
 
@@ -285,6 +286,23 @@ export default function SettingsPage() {
                 </div>
               </form>
             </div>
+          </div>
+
+          {/* NEW: CREDIT CARD MANAGEMENT HUB LINK */}
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-xl font-bold text-gray-900">Credit Cards</h2>
+                <span className="bg-emerald-100 text-emerald-700 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider">Module</span>
+              </div>
+              <p className="text-sm text-gray-500 max-w-md">Manage your credit limits, track utilization, and monitor statement dates in your dedicated credit card hub.</p>
+            </div>
+            <Link 
+              href="/dashboard/credit-cards"
+              className="w-full md:w-auto px-8 py-3 bg-white text-gray-900 border border-gray-200 font-bold rounded-xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all text-center whitespace-nowrap"
+            >
+              Open Hub &rarr;
+            </Link>
           </div>
 
           {/* SECURITY CARD */}

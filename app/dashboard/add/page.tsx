@@ -9,13 +9,14 @@ import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from "f
 interface Wallet {
   id: string;
   name: string;
+  isCreditCard?: boolean; // Flag to separate them visually in the UI
 }
 
 export default function AddTransactionPage() {
   const { user } = useAuth();
   const router = useRouter();
 
-  // Fetched Wallets
+  // Fetched Wallets & Cards
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [loadingWallets, setLoadingWallets] = useState(true);
 
@@ -39,26 +40,46 @@ export default function AddTransactionPage() {
   const expenseCategories = ["Food & Dining", "Transportation", "Shopping", "Housing", "Bills & Utilities", "Entertainment", "Healthcare", "Personal Care", "Education", "Other"];
   const incomeCategories = ["Salary", "Business", "Freelance", "Gifts", "Investments", "Other"];
 
-  // Fetch Wallets
+  // Fetch Wallets AND Credit Cards
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, "paymentMethods"), where("userId", "==", user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedWallets: Wallet[] = [];
-      snapshot.forEach((doc) => fetchedWallets.push({ id: doc.id, name: doc.data().name }));
-      setWallets(fetchedWallets);
-      
-      // Auto-select first wallet if available
-      if (fetchedWallets.length > 0) {
-        setAccount(fetchedWallets[0].name);
-        setFromAccount(fetchedWallets[0].name);
-        if (fetchedWallets.length > 1) {
-          setToAccount(fetchedWallets[1].name);
+
+    const qWallets = query(collection(db, "paymentMethods"), where("userId", "==", user.uid));
+    const qCards = query(collection(db, "creditCards"), where("userId", "==", user.uid));
+
+    let fetchedWallets: Wallet[] = [];
+    let fetchedCards: Wallet[] = [];
+
+    const updateUnifiedList = (standard: Wallet[], credit: Wallet[]) => {
+      const combined = [...standard, ...credit];
+      setWallets(combined);
+
+      // Auto-select defaults only if they aren't already set
+      if (combined.length > 0) {
+        setAccount(prev => prev || combined[0].name);
+        setFromAccount(prev => prev || combined[0].name);
+        if (combined.length > 1) {
+          setToAccount(prev => prev || combined[1].name);
         }
       }
       setLoadingWallets(false);
+    };
+
+    const unsubWallets = onSnapshot(qWallets, (snapshot) => {
+      fetchedWallets = snapshot.docs.map((doc) => ({ id: doc.id, name: doc.data().name }));
+      updateUnifiedList(fetchedWallets, fetchedCards);
     });
-    return () => unsubscribe();
+
+    const unsubCards = onSnapshot(qCards, (snapshot) => {
+      // Map credit cards and flag them
+      fetchedCards = snapshot.docs.map((doc) => ({ id: doc.id, name: doc.data().cardName, isCreditCard: true }));
+      updateUnifiedList(fetchedWallets, fetchedCards);
+    });
+
+    return () => {
+      unsubWallets();
+      unsubCards();
+    };
   }, [user]);
 
   // Handle Form Submission
@@ -140,7 +161,7 @@ export default function AddTransactionPage() {
         {wallets.length === 0 ? (
           <div className="bg-red-50 border-2 border-dashed border-red-200 p-8 rounded-3xl text-center">
             <h2 className="text-red-600 font-black text-xl mb-2">No Wallets Found!</h2>
-            <p className="text-red-500 mb-6 font-medium">You need to create at least one wallet before you can add a transaction.</p>
+            <p className="text-red-500 mb-6 font-medium">You need to create at least one wallet or credit card before you can add a transaction.</p>
             <button onClick={() => router.push("/dashboard/settings")} className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 shadow-sm">
               Go to Settings
             </button>
@@ -196,9 +217,16 @@ export default function AddTransactionPage() {
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Wallet</label>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Account / Card</label>
                       <select value={account} onChange={(e) => setAccount(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 font-bold text-gray-700 outline-none focus:border-blue-500 transition-colors">
-                        {wallets.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                        <optgroup label="Standard Wallets">
+                          {wallets.filter(w => !w.isCreditCard).map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                        </optgroup>
+                        {wallets.some(w => w.isCreditCard) && (
+                          <optgroup label="Credit Cards">
+                            {wallets.filter(w => w.isCreditCard).map(w => <option key={w.id} value={w.name}>{w.name} 💳</option>)}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
                     <div>
@@ -216,15 +244,29 @@ export default function AddTransactionPage() {
                 <div className="space-y-4 bg-blue-50/50 p-4 rounded-2xl border border-blue-50">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">From Wallet</label>
+                      <label className="block text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">From</label>
                       <select value={fromAccount} onChange={(e) => setFromAccount(e.target.value)} className="w-full bg-white border border-blue-100 rounded-2xl p-4 font-bold text-gray-700 outline-none focus:border-blue-500">
-                        {wallets.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                        <optgroup label="Standard Wallets">
+                          {wallets.filter(w => !w.isCreditCard).map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                        </optgroup>
+                        {wallets.some(w => w.isCreditCard) && (
+                          <optgroup label="Credit Cards">
+                            {wallets.filter(w => w.isCreditCard).map(w => <option key={w.id} value={w.name}>{w.name} 💳</option>)}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">To Wallet</label>
+                      <label className="block text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">To</label>
                       <select value={toAccount} onChange={(e) => setToAccount(e.target.value)} className="w-full bg-white border border-blue-100 rounded-2xl p-4 font-bold text-gray-700 outline-none focus:border-blue-500">
-                        {wallets.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                        <optgroup label="Standard Wallets">
+                          {wallets.filter(w => !w.isCreditCard).map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                        </optgroup>
+                        {wallets.some(w => w.isCreditCard) && (
+                          <optgroup label="Credit Cards">
+                            {wallets.filter(w => w.isCreditCard).map(w => <option key={w.id} value={w.name}>{w.name} 💳</option>)}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
                   </div>
