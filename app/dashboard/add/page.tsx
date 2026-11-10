@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, updateDoc, increment } from "firebase/firestore";
 
 interface Wallet {
   id: string;
@@ -97,11 +97,14 @@ export default function AddTransactionPage() {
           return;
         }
 
+        const numAmount = Number(amount);
+        const numFee = Number(transferFee) || 0;
+
         // 1. Create the Transfer Record
         await addDoc(collection(db, "transactions"), {
           userId: user.uid,
           type: "transfer",
-          amount: Number(amount),
+          amount: numAmount,
           fromAccount,
           toAccount,
           category: "Transfer",
@@ -110,34 +113,64 @@ export default function AddTransactionPage() {
           createdAt: serverTimestamp(),
         });
 
-        // 2. The Transfer Fee Trick (Creates a separate expense)
-        if (transferFee && Number(transferFee) > 0) {
+        // 2. Log Transfer Fee
+        if (numFee > 0) {
           await addDoc(collection(db, "transactions"), {
             userId: user.uid,
             type: "expense",
-            amount: Number(transferFee),
-            account: fromAccount, // Deduct fee from the sender wallet
+            amount: numFee,
+            account: fromAccount, 
             category: "Transfer Fee",
             description: `Fee for transferring to ${toAccount}`,
             date: new Date(date),
             createdAt: serverTimestamp(),
           });
         }
+
+        // 3. Sync to Credit Cards (if involved in the transfer)
+        const fromWallet = wallets.find(w => w.name === fromAccount);
+        const toWallet = wallets.find(w => w.name === toAccount);
+
+        if (fromWallet?.isCreditCard) {
+          // Transferring FROM a CC means you are borrowing/using limit
+          await updateDoc(doc(db, "creditCards", fromWallet.id), {
+            currentBalance: increment(numAmount + numFee)
+          });
+        }
+        if (toWallet?.isCreditCard) {
+          // Transferring TO a CC means you are paying off the bill
+          await updateDoc(doc(db, "creditCards", toWallet.id), {
+            currentBalance: increment(-numAmount)
+          });
+        }
+
       } else {
-        // Create Standard Income/Expense Record
+        const numAmount = Number(amount);
+        
+        // 1. Create Standard Income/Expense Record
         await addDoc(collection(db, "transactions"), {
           userId: user.uid,
           type,
-          amount: Number(amount),
+          amount: numAmount,
           category: category || (type === "expense" ? expenseCategories[0] : incomeCategories[0]),
           account,
           description,
           date: new Date(date),
           createdAt: serverTimestamp(),
         });
+
+        // 2. Sync to Credit Card Balance
+        const selectedWallet = wallets.find(w => w.name === account);
+        if (selectedWallet?.isCreditCard) {
+          // Expenses increase what you owe, Income (refunds) decrease what you owe
+          const balanceChange = type === "expense" ? numAmount : -numAmount;
+          await updateDoc(doc(db, "creditCards", selectedWallet.id), {
+            currentBalance: increment(balanceChange)
+          });
+        }
       }
 
-      router.push("/dashboard"); // Send them back to overview
+      router.push("/dashboard"); 
     } catch (error) {
       console.error("Error adding transaction:", error);
       alert("Failed to save transaction.");
