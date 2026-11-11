@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, onSnapshot, updateDoc, doc } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
+import { LayoutDashboard, Wallet, CreditCard, PieChart, Target, Repeat, Bell, LogOut, Settings, MessageSquare, Heart } from "lucide-react";
 
 interface AppNotification {
   id: string;
@@ -39,13 +40,13 @@ export default function DashboardLayout({
     try {
       const auth = getAuth();
       await signOut(auth);
-      router.push("/"); // Sends you back to the home/login screen
+      router.push("/"); 
     } catch (error) {
       console.error("Error signing out:", error);
     }
   };
 
-  // --- REAL-TIME LISTENER ---
+  // --- REAL-TIME NOTIFICATIONS ---
   useEffect(() => {
     if (!user) return;
 
@@ -106,48 +107,22 @@ export default function DashboardLayout({
   };
 
   const navItems = [
-    {
-      name: "Overview", href: "/dashboard",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-        </svg>
-      )
-    },
-    {
-      name: "Savings", href: "/dashboard/savings",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-      )
-    },
-    {
-      name: "Debts", href: "/dashboard/debts",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-      )
-    },
-    {
-      name: "Analytics", href: "/dashboard/analytics",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      )
-    }
+    { name: "Overview", href: "/dashboard", icon: <LayoutDashboard className="w-5 h-5" /> },
+    { name: "Savings", href: "/dashboard/savings", icon: <Wallet className="w-5 h-5" /> },
+    { name: "Budgets", href: "/dashboard/budgets", icon: <Target className="w-5 h-5" /> },
+    { name: "Subs", href: "/dashboard/subscriptions", icon: <Repeat className="w-5 h-5" /> },
+    { name: "Debts", href: "/dashboard/debts", icon: <CreditCard className="w-5 h-5" /> },
+    { name: "Analytics", href: "/dashboard/analytics", icon: <PieChart className="w-5 h-5" /> }
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col relative">
+    <div className="min-h-screen bg-gray-50 flex flex-col relative font-sans">
       
-      <header className="bg-white shadow-sm border-b border-gray-100 sticky top-0 z-40">
+      <header className="bg-white/90 backdrop-blur-md shadow-sm border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 md:px-8 py-3 flex items-center justify-between w-full relative">
           
           {/* 1. LEFT COLUMN: LOGO */}
-          <div className="w-1/3 flex items-center">
+          <div className="w-1/4 flex items-center">
             <Link href="/dashboard" className="flex items-center gap-2 min-w-fit">
               <Image 
                 src="/tekapoysha-logo.png" 
@@ -156,19 +131,19 @@ export default function DashboardLayout({
                 height={32} 
                 className="h-8 w-8 object-contain" 
               />
-              <h1 className="hidden md:block text-2xl font-black text-blue-600 tracking-tight whitespace-nowrap">
+              <h1 className="hidden lg:block text-2xl font-black text-blue-600 tracking-tight whitespace-nowrap">
                 TekaPoysha
               </h1>
             </Link>
           </div>
 
           {/* 2. CENTER COLUMN: NAVIGATION */}
-          <nav className="hidden md:flex w-1/3 justify-center gap-8">
+          <nav className="hidden md:flex w-2/4 justify-center gap-6 xl:gap-8">
             {navItems.map((item) => (
               <Link 
                 key={item.name} 
                 href={item.href}
-                className={`font-bold transition-colors ${pathname === item.href ? "text-blue-600" : "text-gray-500 hover:text-gray-900"}`}
+                className={`text-sm font-bold transition-colors ${pathname === item.href ? "text-blue-600" : "text-gray-500 hover:text-gray-900"}`}
               >
                 {item.name}
               </Link>
@@ -176,7 +151,7 @@ export default function DashboardLayout({
           </nav>
 
           {/* 3. RIGHT COLUMN: ACTIONS & PROFILE */}
-          <div className="w-1/3 flex items-center justify-end gap-4">
+          <div className="w-1/4 flex items-center justify-end gap-3 sm:gap-4">
             
             {/* THE BELL ICON */}
             <button 
@@ -184,13 +159,11 @@ export default function DashboardLayout({
                 setIsPanelOpen(!isPanelOpen);
                 setIsProfileOpen(false);
               }}
-              className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+              className="relative p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"
             >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
+              <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 border-2 border-white rounded-full">
+                <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-4 h-4 text-[9px] font-black text-white bg-red-500 border-2 border-white rounded-full">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
@@ -204,7 +177,7 @@ export default function DashboardLayout({
               }}
               className="flex items-center gap-3 pl-2 sm:pl-4 sm:border-l border-gray-100 cursor-pointer group"
             >
-              <span className="hidden md:block text-sm font-bold text-gray-700 group-hover:text-blue-600 transition-colors">
+              <span className="hidden lg:block text-sm font-bold text-gray-700 group-hover:text-blue-600 transition-colors">
                 {user?.displayName || user?.email?.split('@')[0] || "My Account"}
               </span>
               <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-full flex items-center justify-center text-white font-bold shadow-sm group-hover:shadow-md transition-all overflow-hidden shrink-0">
@@ -215,7 +188,6 @@ export default function DashboardLayout({
                 )}
               </div>
             </div>
-
           </div>
 
           {/* --- NOTIFICATION DROPDOWN PANEL --- */}
@@ -226,7 +198,7 @@ export default function DashboardLayout({
                 <div className="p-4 border-b border-gray-50 flex justify-between items-center sticky top-0 bg-white/90 backdrop-blur-md rounded-t-3xl">
                   <h3 className="font-bold text-gray-900">Notifications</h3>
                   {unreadCount > 0 && (
-                    <button onClick={markAllAsRead} className="text-xs font-bold text-blue-600 hover:text-blue-800">
+                    <button onClick={markAllAsRead} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors">
                       Mark all read
                     </button>
                   )}
@@ -264,7 +236,7 @@ export default function DashboardLayout({
             </>
           )}
 
-          {/* --- PROFILE DROPDOWN PANEL (NO MANUAL UPLOAD) --- */}
+          {/* --- PROFILE DROPDOWN PANEL --- */}
           {isProfileOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
@@ -273,8 +245,6 @@ export default function DashboardLayout({
                 
                 {/* User Info Header */}
                 <div className="px-4 py-4 border-b border-gray-50 mb-1 flex items-center gap-3">
-                  
-                  {/* Clean, Non-Interactive Profile Picture */}
                   <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold shadow-sm overflow-hidden bg-gradient-to-tr from-blue-600 to-blue-400 shrink-0">
                     {user?.photoURL ? (
                       <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -282,7 +252,6 @@ export default function DashboardLayout({
                       <span className="text-xl">{user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}</span>
                     )}
                   </div>
-
                   <div className="overflow-hidden">
                     <p className="text-sm font-bold text-gray-900 truncate">{user?.displayName || "My Account"}</p>
                     <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
@@ -292,40 +261,37 @@ export default function DashboardLayout({
                 <Link 
                   href="/dashboard/contact" 
                   onClick={() => setIsProfileOpen(false)}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors"
+                  className="flex items-center gap-3 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors"
                 >
-                  <span className="text-lg">✉️</span>
+                  <MessageSquare className="w-4 h-4 text-gray-400" />
                   Contact & Feedback
                 </Link>
 
                 <Link 
                   href="/dashboard/support" 
                   onClick={() => setIsProfileOpen(false)}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-amber-600 transition-colors"
+                  className="flex items-center gap-3 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-amber-600 transition-colors"
                 >
-                  <span className="text-lg">☕</span>
+                  <Heart className="w-4 h-4 text-gray-400" />
                   Support Developer
                 </Link>
                 
                 <Link 
                   href="/dashboard/settings" 
                   onClick={() => setIsProfileOpen(false)}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors"
+                  className="flex items-center gap-3 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors"
                 >
-                  <span className="text-lg">⚙️</span>
+                  <Settings className="w-4 h-4 text-gray-400" />
                   Account Settings
                 </Link>
 
                 <button 
                   onClick={handleLogout}
-                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors mt-1 border-t border-gray-50 pt-3"
+                  className="w-full text-left flex items-center gap-3 px-5 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors mt-1 border-t border-gray-50 pt-3"
                 >
-                  <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                  </svg>
+                  <LogOut className="w-4 h-4" />
                   Log Out
                 </button>
-
               </div>
             </>
           )}
@@ -334,31 +300,31 @@ export default function DashboardLayout({
       </header>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 pb-32 md:pb-8">
+      <main className="flex-1 pb-24 md:pb-8">
         {children}
       </main>
 
-      {/* HIGH IMPACT MOBILE BOTTOM NAVBAR */}
+      {/* HIGH IMPACT MOBILE BOTTOM NAVBAR WITH HORIZONTAL SCROLL */}
       <div 
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/90 backdrop-blur-lg border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.08)]"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} 
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.06)]"
+        style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }} 
       >
-        <nav className="flex justify-around items-center px-2 pt-3">
+        <nav className="flex items-center overflow-x-auto overflow-y-hidden hide-scrollbar px-2 py-2 gap-1 touch-pan-x overscroll-x-contain">
           {navItems.map((item) => {
             const isActive = pathname === item.href; 
             return (
               <Link 
                 key={item.name} 
                 href={item.href}
-                className={`flex flex-col items-center justify-center w-full py-2 px-1 rounded-2xl transition-all ${
-                  isActive ? "text-blue-600" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                className={`flex flex-col items-center justify-center min-w-[72px] h-14 rounded-2xl transition-all select-none ${
+                  isActive ? "text-blue-600 bg-blue-50/50" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
                 }`}
                 style={{ WebkitTapHighlightColor: 'transparent' }} 
               >
-                <div className={`mb-1 transition-transform ${isActive ? "scale-110" : "scale-100"}`}>
+                <div className={`mb-1 transition-transform duration-200 ${isActive ? "scale-110" : "scale-100"}`}>
                   {item.icon}
                 </div>
-                <span className={`text-[10px] uppercase tracking-widest font-black ${isActive ? "opacity-100" : "opacity-70"}`}>
+                <span className={`text-[9px] uppercase tracking-widest font-black transition-opacity ${isActive ? "opacity-100" : "opacity-70"}`}>
                   {item.name}
                 </span>
               </Link>

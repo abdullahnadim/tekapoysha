@@ -6,8 +6,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthContext";
 import LoadingShield from "@/components/ui/LoadingShield";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc, increment } from "firebase/firestore";
 import { Transaction } from "@/types";
+import EditRecordModal from "@/components/Transactions/EditRecordModal";
+import { 
+  Edit2, Trash2, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, 
+  Eye, EyeOff, Plus, ChevronUp, ChevronDown, Receipt 
+} from "lucide-react";
 
 interface PaymentMethod {
   id: string;
@@ -28,8 +33,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   
-  // Base Wallets from Settings
+  // Base Wallets & Cards
   const [baseWallets, setBaseWallets] = useState<PaymentMethod[]>([]);
+  const [creditCards, setCreditCards] = useState<any[]>([]);
 
   // Computed & Grouped Wallets
   const [totalBalance, setTotalBalance] = useState(0);
@@ -37,21 +43,17 @@ export default function Dashboard() {
   const [bankWallets, setBankWallets] = useState<ComputedWallet[]>([]);
   const [mobileWallets, setMobileWallets] = useState<ComputedWallet[]>([]);
 
-  const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
+  // Reversal Engine & Edit State
+  const [selectedRecord, setSelectedRecord] = useState<Transaction | null>(null);
 
   // UI States
   const [showBalances, setShowBalances] = useState(false); 
   const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(false); 
 
-  const formatDateForInput = (dateObj: any) => {
-    if (!dateObj) return "";
-    const d = dateObj?.toDate ? dateObj.toDate() : new Date(dateObj);
-    return d.toISOString().split('T')[0];
-  };
-
-  // 1. Fetch User's Premium Wallets
+  // 1. Fetch User's Asset Wallets & Credit Cards
   useEffect(() => {
     if (!user || !user.uid) return;
+    
     const qWallets = query(collection(db, "paymentMethods"), where("userId", "==", user.uid));
     const unsubWallets = onSnapshot(qWallets, (snapshot) => {
       const w: PaymentMethod[] = [];
@@ -61,7 +63,15 @@ export default function Dashboard() {
       });
       setBaseWallets(w);
     });
-    return () => unsubWallets();
+
+    const qCards = query(collection(db, "creditCards"), where("userId", "==", user.uid));
+    const unsubCards = onSnapshot(qCards, (snapshot) => {
+      const c: any[] = [];
+      snapshot.forEach(doc => c.push({ id: doc.id, ...doc.data() }));
+      setCreditCards(c);
+    });
+
+    return () => { unsubWallets(); unsubCards(); };
   }, [user]);
 
   // 2. Fetch User's Transactions
@@ -92,7 +102,7 @@ export default function Dashboard() {
   useEffect(() => {
     const walletsMap: Record<string, ComputedWallet> = {};
     
-    // Initialize map
+    // Initialize map with base asset wallets
     baseWallets.forEach(w => {
       walletsMap[w.name] = { ...w, currentBalance: w.balance };
     });
@@ -104,7 +114,7 @@ export default function Dashboard() {
       }
     };
 
-    // Calculate real-time balances
+    // Calculate real-time balances from transactions
     transactions.forEach(txn => {
       const amt = Number(txn.amount);
       if (txn.type === "income" && txn.account) {
@@ -132,21 +142,21 @@ export default function Dashboard() {
     let netWorth = 0;
 
     Object.values(walletsMap).forEach(w => {
+      // STRICT FILTER: Do not list Credit Cards in the Asset Wallets view
+      if (creditCards.some(cc => cc.cardName === w.name)) return;
+
       netWorth += w.currentBalance;
       
       const n = w.name.toLowerCase();
       const explicitType = w.type || "auto"; 
 
-      // PRIORITY 1: Explicit Choice
       if (explicitType === "mobile") {
         mobile.push(w);
       } else if (explicitType === "bank") {
         bank.push(w);
       } else if (explicitType === "cash") {
         cash.push(w);
-      } 
-      // PRIORITY 2: Keyword scanning
-      else {
+      } else {
         if (n.includes("bkash") || n.includes("nagad") || n.includes("rocket") || n.includes("upay") || n.includes("cellfin") || n.includes("tap") || n.includes("surecash")) {
           mobile.push(w);
         } else if (n.includes("bank") || n.includes("card") || n.includes("dbbl") || n.includes("city") || n.includes("brac") || n.includes("islami")) {
@@ -162,39 +172,48 @@ export default function Dashboard() {
     setBankWallets(bank);
     setMobileWallets(mobile);
 
-  }, [baseWallets, transactions]);
+  }, [baseWallets, transactions, creditCards]);
 
   const sumWallets = (arr: ComputedWallet[]) => arr.reduce((sum, w) => sum + w.currentBalance, 0);
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingTxn || !editingTxn.id) return;
+  // Combine wallets for the Edit Modal dropdowns
+  const modalWallets = [
+    ...baseWallets.map(w => ({ id: w.id, name: w.name, isCreditCard: false })),
+    ...creditCards.map(c => ({ id: c.id, name: c.cardName, isCreditCard: true }))
+  ];
+
+  // Direct Row Delete with Reversal Engine
+  const handleDeleteRecord = async (txn: Transaction) => {
+    if (!window.confirm("Are you sure you want to delete this record? Associated balances will be restored automatically.")) return;
+    
     try {
-      const txnRef = doc(db, "transactions", editingTxn.id);
-      await updateDoc(txnRef, {
-        amount: Number(editingTxn.amount),
-        account: editingTxn.account,
-        category: editingTxn.category,
-        description: editingTxn.description,
-        date: new Date(editingTxn.date as string),
-      });
-      setEditingTxn(null);
+      const applyReverse = async (walletName: string, amountChange: number, isTransferToCC = false) => {
+        const w = modalWallets.find(x => x.name === walletName);
+        if (!w) return;
+        if (w.isCreditCard) {
+          let finalChange = amountChange;
+          if (isTransferToCC) finalChange = -amountChange;
+          await updateDoc(doc(db, "creditCards", w.id), {
+            currentBalance: increment(finalChange)
+          });
+        }
+      };
+
+      if (txn.type === 'expense') await applyReverse(txn.account!, -txn.amount);
+      else if (txn.type === 'income') await applyReverse(txn.account!, txn.amount);
+      else if (txn.type === 'transfer') {
+        await applyReverse(txn.fromAccount!, -txn.amount);
+        await applyReverse(txn.toAccount!, txn.amount, true);
+      }
+
+      await deleteDoc(doc(db, "transactions", txn.id!));
     } catch (error) {
-      console.error("Error updating:", error);
-      alert("Failed to update.");
+      console.error("Error deleting record:", error);
+      alert("Failed to delete record.");
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure?")) return;
-    try {
-      await deleteDoc(doc(db, "transactions", id));
-    } catch (error) {
-      console.error("Error deleting:", error);
-    }
-  };
-
-  if (loading) return <LoadingShield text="Loading vault..." />;
+  if (loading) return <LoadingShield text="Loading Dashboard..." />;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
@@ -213,16 +232,7 @@ export default function Dashboard() {
                 className="p-1.5 hover:bg-white rounded-full text-gray-600 transition-colors"
                 title={showBalances ? "Hide Balances" : "Show Balances"}
               >
-                {showBalances ? (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.978 9.978 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                  </svg>
-                )}
+                {showBalances ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
 
               <button 
@@ -230,20 +240,12 @@ export default function Dashboard() {
                 className="p-1.5 hover:bg-white rounded-full text-gray-600 transition-colors"
                 title={isOverviewCollapsed ? "Expand Overview" : "Collapse Overview"}
               >
-                {isOverviewCollapsed ? (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                  </svg>
-                )}
+                {isOverviewCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
             </div>
           </div>
           {!isOverviewCollapsed && (
-            <p className="text-gray-500 mt-1 font-medium animate-in fade-in duration-300">Manage your accounts and balances.</p>
+            <p className="text-gray-500 mt-1 font-medium animate-in fade-in duration-300">Manage your asset accounts and balances.</p>
           )}
         </div>
 
@@ -251,19 +253,19 @@ export default function Dashboard() {
         {!isOverviewCollapsed && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-4 fade-in duration-300">
             
-            <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 rounded-3xl shadow-lg text-white border border-gray-700 flex flex-col justify-between">
+            <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 rounded-[2rem] shadow-lg text-white border border-gray-700 flex flex-col justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Total Net Worth</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Total Assets</p>
                 <h2 className="text-3xl font-black truncate">
                   {showBalances ? `৳ ${totalBalance.toLocaleString('en-IN')}` : '৳ ••••••'}
                 </h2>
               </div>
               <div className="mt-4 pt-3 border-t border-gray-700">
-                <span className="text-xs text-gray-400 font-medium">All accounts combined</span>
+                <span className="text-xs text-gray-400 font-medium">All positive accounts combined</span>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Cash
@@ -286,7 +288,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span> Bank
@@ -306,7 +308,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-pink-500"></span> Mobile
@@ -330,25 +332,25 @@ export default function Dashboard() {
         )}
 
         {/* --- LINK TO DEDICATED CREDIT CARDS HUB --- */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-3xl shadow-md p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-500">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-[2rem] shadow-md p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-500">
           <div>
             <h3 className="text-xl font-bold">Credit Card Management</h3>
             <p className="text-blue-100 text-sm mt-1">Track utilization, view limits, and manage your credit profiles.</p>
           </div>
           <Link 
             href="/dashboard/credit-cards" 
-            className="w-full md:w-auto px-6 py-3 bg-white text-blue-700 font-bold rounded-xl shadow-sm hover:shadow-md hover:bg-blue-50 transition-all text-center whitespace-nowrap"
+            className="w-full md:w-auto px-6 py-3.5 bg-white text-blue-700 font-bold rounded-xl shadow-sm hover:shadow-md hover:bg-blue-50 transition-all text-center whitespace-nowrap"
           >
             Manage Cards &rarr;
           </Link>
         </div>
 
         {/* TRANSACTIONS LIST */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-white sticky top-0 z-10">
-            <h3 className="font-bold text-gray-900">Recent Activity</h3>
+            <h3 className="font-bold text-gray-900 text-lg">Recent Activity</h3>
             <Link href="/dashboard/add" className="hidden md:flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-md transition-all shadow-sm">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+              <Plus className="w-4 h-4" />
               Add Record
             </Link>
           </div>
@@ -356,26 +358,34 @@ export default function Dashboard() {
           <div className="divide-y divide-gray-50 h-[600px] overflow-y-auto">
             {transactions.length === 0 ? (
               <div className="p-12 text-center flex flex-col items-center justify-center h-full">
-                <span className="text-5xl mb-4 opacity-50">💸</span>
-                <p className="text-gray-900 font-bold text-lg">No transactions yet</p>
-                <p className="text-gray-500 font-medium mt-1">Start tracking your wealth by adding your first record.</p>
+                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+                  <Receipt className="w-8 h-8 text-gray-300" />
+                </div>
+                <p className="text-gray-900 font-bold text-lg">No Recent Activity</p>
+                <p className="text-gray-500 font-medium mt-1">Your logged transactions will appear here.</p>
               </div>
             ) : (
               transactions.map((txn) => (
                 <div key={txn.id} className="p-5 flex justify-between items-center hover:bg-gray-50 transition-colors group">
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black shadow-sm ${txn.type === 'income' ? 'bg-green-50 text-green-600 border border-green-100' : txn.type === 'transfer' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
-                      {txn.type === 'income' ? '↓' : txn.type === 'transfer' ? '⇄' : '↑'}
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${
+                      txn.type === 'income' ? 'bg-green-50 text-green-600 border border-green-100' : 
+                      txn.type === 'transfer' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 
+                      'bg-red-50 text-red-600 border border-red-100'
+                    }`}>
+                      {txn.type === 'income' ? <ArrowDownLeft className="w-5 h-5" /> : 
+                       txn.type === 'transfer' ? <ArrowRightLeft className="w-5 h-5" /> : 
+                       <ArrowUpRight className="w-5 h-5" />}
                     </div>
                     <div>
                       <p className="font-bold text-gray-900 text-base">{txn.category}</p>
-                      <p className="text-xs text-gray-400 font-medium mt-0.5">
+                      <p className="text-xs text-gray-500 font-medium mt-0.5">
                         {txn.type === 'transfer' ? (
-                          <span className="text-blue-500 font-bold">{txn.fromAccount} → {txn.toAccount}</span>
+                          <span className="text-blue-600 font-bold">{txn.fromAccount} → {txn.toAccount}</span>
                         ) : (
-                          <span className="text-gray-500 font-bold">{txn.account}</span>
+                          <span className="text-gray-600 font-bold">{txn.account}</span>
                         )} 
-                        <span className="mx-1">•</span> 
+                        <span className="mx-1.5 text-gray-300">•</span> 
                         {new Date((txn.date as any)?.toDate ? (txn.date as any).toDate() : txn.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                       </p>
                     </div>
@@ -386,9 +396,13 @@ export default function Dashboard() {
                         {txn.type === 'income' ? '+' : txn.type === 'transfer' ? '' : '-'} {showBalances ? `৳ ${Number(txn.amount).toLocaleString('en-IN')}` : '••••'}
                       </p>
                     </div>
-                    <div className="flex gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setEditingTxn({...txn, date: formatDateForInput(txn.date)})} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit">✎</button>
-                      <button onClick={() => txn.id && handleDelete(txn.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">🗑</button>
+                    <div className="flex gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => setSelectedRecord(txn as any)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Record">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => txn.id && handleDeleteRecord(txn)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Record">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -397,36 +411,23 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* EDIT MODAL */}
-        {editingTxn && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-              <h2 className="text-2xl font-black mb-6 text-gray-900">Update Record</h2>
-              <form onSubmit={handleUpdate} className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 block">Amount</label>
-                  <input type="number" value={editingTxn.amount} onChange={(e) => setEditingTxn({...editingTxn, amount: Number(e.target.value)})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:border-blue-500 focus:bg-white transition-all font-bold" placeholder="Amount" />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 block">Description</label>
-                  <input type="text" value={editingTxn.description} onChange={(e) => setEditingTxn({...editingTxn, description: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:border-blue-500 focus:bg-white transition-all font-medium" placeholder="Description" />
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setEditingTxn(null)} className="flex-1 py-3.5 rounded-xl bg-gray-100 font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
-                  <button type="submit" className="flex-1 py-3.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-sm transition-colors">Save Changes</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
+        {/* FLOATING ACTION BUTTON (MOBILE) */}
         <Link 
           href="/dashboard/add" 
-          className="md:hidden fixed bottom-24 right-4 w-14 h-14 bg-blue-600 text-white rounded-full flex items-center justify-center text-3xl pb-1 shadow-[0_8px_30px_rgba(37,99,235,0.4)] hover:bg-blue-700 active:scale-90 transition-all z-40"
+          className="md:hidden fixed bottom-24 right-4 w-14 h-14 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(37,99,235,0.4)] hover:bg-blue-700 active:scale-90 transition-all z-40"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
-          +
+          <Plus className="w-6 h-6" />
         </Link>
+
+        {/* --- THE REVERSAL ENGINE MODAL --- */}
+        <EditRecordModal 
+          isOpen={!!selectedRecord} 
+          onClose={() => setSelectedRecord(null)}
+          onSuccess={() => setSelectedRecord(null)}
+          record={selectedRecord as any}
+          wallets={modalWallets}
+        />
 
       </div>
     </div>
