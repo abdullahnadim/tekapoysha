@@ -11,7 +11,8 @@ import { Transaction } from "@/types";
 import EditRecordModal from "@/components/Transactions/EditRecordModal";
 import { 
   Edit2, Trash2, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, 
-  Eye, EyeOff, Plus, ChevronUp, ChevronDown, Receipt, Search, Filter, X 
+  Eye, EyeOff, Plus, Receipt, Search, Filter, X, Wallet, CreditCard,
+  TrendingUp, TrendingDown
 } from "lucide-react";
 
 interface PaymentMethod {
@@ -21,53 +22,36 @@ interface PaymentMethod {
   type?: string;
 }
 
-interface ComputedWallet extends PaymentMethod {
-  currentBalance: number;
-  isLegacy?: boolean; 
-}
-
 export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter(); 
   
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  
-  // Base Wallets & Cards
   const [baseWallets, setBaseWallets] = useState<PaymentMethod[]>([]);
   const [creditCards, setCreditCards] = useState<any[]>([]);
 
-  // Computed & Grouped Wallets
   const [totalBalance, setTotalBalance] = useState(0);
-  const [cashWallets, setCashWallets] = useState<ComputedWallet[]>([]);
-  const [bankWallets, setBankWallets] = useState<ComputedWallet[]>([]);
-  const [mobileWallets, setMobileWallets] = useState<ComputedWallet[]>([]);
+  const [monthlyIncome, setMonthlyIncome] = useState(0);
+  const [monthlyExpense, setMonthlyExpense] = useState(0);
 
-  // Reversal Engine & Edit State
   const [selectedRecord, setSelectedRecord] = useState<Transaction | null>(null);
-
-  // UI States
   const [showBalances, setShowBalances] = useState(false); 
-  const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(false); 
-
-  // --- NEW: SEARCH & FILTER STATES ---
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
-  const [filterType, setFilterType] = useState("all"); // 'all', 'income', 'expense', 'transfer'
+  const [filterType, setFilterType] = useState("all"); 
   const [filterAccount, setFilterAccount] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
 
-  // 1. Fetch User's Asset Wallets & Credit Cards
+  const currentMonthPrefix = new Date().toISOString().slice(0, 7);
+
+  // 1. Fetch Wallets
   useEffect(() => {
     if (!user || !user.uid) return;
-    
     const qWallets = query(collection(db, "paymentMethods"), where("userId", "==", user.uid));
     const unsubWallets = onSnapshot(qWallets, (snapshot) => {
       const w: PaymentMethod[] = [];
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        w.push({ id: doc.id, name: data.name, balance: data.balance || 0, type: data.type || "auto" });
-      });
+      snapshot.forEach(doc => w.push({ id: doc.id, name: doc.data().name, balance: doc.data().balance || 0 }));
       setBaseWallets(w);
     });
 
@@ -77,11 +61,10 @@ export default function Dashboard() {
       snapshot.forEach(doc => c.push({ id: doc.id, ...doc.data() }));
       setCreditCards(c);
     });
-
     return () => { unsubWallets(); unsubCards(); };
   }, [user]);
 
-  // 2. Fetch User's Transactions
+  // 2. Fetch Txns & Calc Monthly Flow
   useEffect(() => {
     if (!user || !user.uid) {
       setLoading(false); 
@@ -91,7 +74,18 @@ export default function Dashboard() {
     const qTxn = query(collection(db, "transactions"), where("userId", "==", user.uid));
     const unsubTxn = onSnapshot(qTxn, (snapshot) => {
       const fetched: Transaction[] = [];
-      snapshot.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() } as Transaction));
+      let mIncome = 0; let mExpense = 0;
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const txn = { id: doc.id, ...data } as Transaction;
+        fetched.push(txn);
+        const dateStr = typeof data.date === 'string' ? data.date : data.date.toDate().toISOString();
+        if (dateStr.startsWith(currentMonthPrefix)) {
+          if (txn.type === 'income') mIncome += Number(txn.amount);
+          if (txn.type === 'expense') mExpense += Number(txn.amount);
+        }
+      });
       
       fetched.sort((a, b) => {
         const dA = (a.date as any)?.toDate ? (a.date as any).toDate() : new Date(a.date);
@@ -100,94 +94,42 @@ export default function Dashboard() {
       });
       
       setTransactions(fetched);
+      setMonthlyIncome(mIncome);
+      setMonthlyExpense(mExpense);
       setLoading(false);
     });
     return () => unsubTxn();
-  }, [user, router]);
+  }, [user, router, currentMonthPrefix]);
 
-  // 3. The Calculation Engine & Smart Sorter
+  // 3. Calc Global Net Worth
   useEffect(() => {
-    const walletsMap: Record<string, ComputedWallet> = {};
-    
-    baseWallets.forEach(w => {
-      walletsMap[w.name] = { ...w, currentBalance: w.balance };
-    });
-
-    const ensureWallet = (name: string) => {
-      if (!name) return;
-      if (!walletsMap[name]) {
-        walletsMap[name] = { id: name, name, balance: 0, currentBalance: 0, isLegacy: true, type: "auto" };
-      }
-    };
+    const walletsMap: Record<string, number> = {};
+    baseWallets.forEach(w => walletsMap[w.name] = w.balance);
 
     transactions.forEach(txn => {
       const amt = Number(txn.amount);
-      if (txn.type === "income" && txn.account) {
-        ensureWallet(txn.account);
-        walletsMap[txn.account].currentBalance += amt;
-      } else if (txn.type === "expense" && txn.account) {
-        ensureWallet(txn.account);
-        walletsMap[txn.account].currentBalance -= amt;
-      } else if (txn.type === "transfer") {
-        if (txn.fromAccount) {
-          ensureWallet(txn.fromAccount);
-          walletsMap[txn.fromAccount].currentBalance -= amt;
-        }
-        if (txn.toAccount) {
-          ensureWallet(txn.toAccount);
-          walletsMap[txn.toAccount].currentBalance += amt;
-        }
+      if (txn.type === "income" && txn.account) walletsMap[txn.account] = (walletsMap[txn.account] || 0) + amt;
+      else if (txn.type === "expense" && txn.account) walletsMap[txn.account] = (walletsMap[txn.account] || 0) - amt;
+      else if (txn.type === "transfer") {
+        if (txn.fromAccount) walletsMap[txn.fromAccount] = (walletsMap[txn.fromAccount] || 0) - amt;
+        if (txn.toAccount) walletsMap[txn.toAccount] = (walletsMap[txn.toAccount] || 0) + amt;
       }
     });
 
-    const cash: ComputedWallet[] = [];
-    const bank: ComputedWallet[] = [];
-    const mobile: ComputedWallet[] = [];
     let netWorth = 0;
-
-    Object.values(walletsMap).forEach(w => {
-      if (creditCards.some(cc => cc.cardName === w.name)) return;
-
-      netWorth += w.currentBalance;
-      
-      const n = w.name.toLowerCase();
-      const explicitType = w.type || "auto"; 
-
-      if (explicitType === "mobile") {
-        mobile.push(w);
-      } else if (explicitType === "bank") {
-        bank.push(w);
-      } else if (explicitType === "cash") {
-        cash.push(w);
-      } else {
-        if (n.includes("bkash") || n.includes("nagad") || n.includes("rocket") || n.includes("upay") || n.includes("cellfin") || n.includes("tap") || n.includes("surecash")) {
-          mobile.push(w);
-        } else if (n.includes("bank") || n.includes("card") || n.includes("dbbl") || n.includes("city") || n.includes("brac") || n.includes("islami")) {
-          bank.push(w);
-        } else {
-          cash.push(w);
-        }
-      }
+    Object.keys(walletsMap).forEach(key => {
+      if (!creditCards.some(cc => cc.cardName === key)) netWorth += walletsMap[key];
     });
-
     setTotalBalance(netWorth);
-    setCashWallets(cash);
-    setBankWallets(bank);
-    setMobileWallets(mobile);
-
   }, [baseWallets, transactions, creditCards]);
-
-  const sumWallets = (arr: ComputedWallet[]) => arr.reduce((sum, w) => sum + w.currentBalance, 0);
 
   const modalWallets = [
     ...baseWallets.map(w => ({ id: w.id, name: w.name, isCreditCard: false })),
     ...creditCards.map(c => ({ id: c.id, name: c.cardName, isCreditCard: true }))
   ];
 
-  // Direct Row Delete with Reversal Engine
   const handleDeleteRecord = async (txn: Transaction) => {
-    if (!window.confirm("Are you sure you want to delete this record? Associated balances will be restored automatically.")) return;
-    
+    if (!window.confirm("Delete this record? Associated balances will automatically restore.")) return;
     try {
       const applyReverse = async (walletName: string, amountChange: number, isTransferToCC = false) => {
         const w = modalWallets.find(x => x.name === walletName);
@@ -195,21 +137,17 @@ export default function Dashboard() {
         if (w.isCreditCard) {
           let finalChange = amountChange;
           if (isTransferToCC) finalChange = -amountChange;
-          await updateDoc(doc(db, "creditCards", w.id), {
-            currentBalance: increment(finalChange)
-          });
+          await updateDoc(doc(db, "creditCards", w.id), { currentBalance: increment(finalChange) });
         }
       };
 
       const numAmount = Number(txn.amount);
-
       if (txn.type === 'expense') await applyReverse(txn.account!, -numAmount);
       else if (txn.type === 'income') await applyReverse(txn.account!, numAmount);
       else if (txn.type === 'transfer') {
         await applyReverse(txn.fromAccount!, -numAmount);
         await applyReverse(txn.toAccount!, numAmount, true);
       }
-
       await deleteDoc(doc(db, "transactions", txn.id!));
     } catch (error) {
       console.error("Error deleting record:", error);
@@ -217,26 +155,17 @@ export default function Dashboard() {
     }
   };
 
-  // --- NEW: THE FILTER ENGINE (ZERO-LATENCY) ---
   const filteredTransactions = useMemo(() => {
     return transactions.filter(txn => {
-      // 1. Filter by Search Query
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchesDesc = txn.description?.toLowerCase().includes(query) || false;
         const matchesCat = txn.category?.toLowerCase().includes(query) || false;
         const matchesAcc = txn.account?.toLowerCase().includes(query) || txn.fromAccount?.toLowerCase().includes(query) || txn.toAccount?.toLowerCase().includes(query) || false;
-        
         if (!matchesDesc && !matchesCat && !matchesAcc) return false;
       }
-
-      // 2. Filter by Type
       if (filterType !== "all" && txn.type !== filterType) return false;
-
-      // 3. Filter by Category
       if (filterCategory !== "all" && txn.category !== filterCategory) return false;
-
-      // 4. Filter by Account
       if (filterAccount !== "all") {
         if (txn.type === "transfer") {
           if (txn.fromAccount !== filterAccount && txn.toAccount !== filterAccount) return false;
@@ -244,288 +173,145 @@ export default function Dashboard() {
           if (txn.account !== filterAccount) return false;
         }
       }
-
       return true;
     });
   }, [transactions, searchQuery, filterType, filterCategory, filterAccount]);
 
-  // Extract unique categories and accounts for the dropdowns
   const uniqueCategories = Array.from(new Set(transactions.map(t => t.category).filter(Boolean)));
   const uniqueAccounts = Array.from(new Set(
     transactions.flatMap(t => t.type === 'transfer' ? [t.fromAccount, t.toAccount] : [t.account]).filter(Boolean)
   ));
-
   const hasActiveFilters = searchQuery !== "" || filterType !== "all" || filterCategory !== "all" || filterAccount !== "all";
 
   const clearFilters = () => {
-    setSearchQuery("");
-    setFilterType("all");
-    setFilterCategory("all");
-    setFilterAccount("all");
+    setSearchQuery(""); setFilterType("all"); setFilterCategory("all"); setFilterAccount("all");
   };
 
   if (loading) return <LoadingShield text="Loading Dashboard..." />;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans pb-28">
+      <div className="max-w-4xl mx-auto space-y-6 md:space-y-8 animate-in fade-in duration-500">
         
-        {/* DYNAMIC HEADER */}
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight transition-all">
-              {isOverviewCollapsed ? "Activity" : "Overview"}
-            </h2>
-            
-            <div className="flex bg-gray-200 rounded-full p-1 gap-1 shadow-inner">
+        {/* MINIMALIST HERO SECTION */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pt-2 md:pt-4">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">Total Balance</p>
               <button 
                 onClick={() => setShowBalances(!showBalances)}
-                className="p-1.5 hover:bg-white rounded-full text-gray-600 transition-colors"
-                title={showBalances ? "Hide Balances" : "Show Balances"}
+                className="p-1 hover:bg-gray-200 rounded-md text-gray-400 hover:text-gray-700 transition-colors"
               >
                 {showBalances ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
+            </div>
+            <h1 className="text-4xl md:text-5xl font-black text-gray-900 tracking-tight">
+              {showBalances ? `৳ ${totalBalance.toLocaleString('en-IN')}` : '৳ ••••••'}
+            </h1>
+          </div>
 
-              <button 
-                onClick={() => setIsOverviewCollapsed(!isOverviewCollapsed)}
-                className="p-1.5 hover:bg-white rounded-full text-gray-600 transition-colors"
-                title={isOverviewCollapsed ? "Expand Overview" : "Collapse Overview"}
-              >
-                {isOverviewCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-              </button>
+          <div className="flex items-center gap-4 bg-white px-5 py-4 rounded-2xl border border-gray-100 shadow-sm">
+            <div>
+              <div className="flex items-center gap-1.5 text-emerald-600 mb-0.5">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-black uppercase tracking-wider">In</span>
+              </div>
+              <p className="text-sm font-bold text-gray-900">{showBalances ? `৳ ${monthlyIncome.toLocaleString('en-IN')}` : '••••'}</p>
+            </div>
+            <div className="w-px h-8 bg-gray-100"></div>
+            <div>
+              <div className="flex items-center gap-1.5 text-red-600 mb-0.5">
+                <TrendingDown className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-black uppercase tracking-wider">Out</span>
+              </div>
+              <p className="text-sm font-bold text-gray-900">{showBalances ? `৳ ${monthlyExpense.toLocaleString('en-IN')}` : '••••'}</p>
             </div>
           </div>
-          {!isOverviewCollapsed && (
-            <p className="text-gray-500 mt-1 font-medium animate-in fade-in duration-300">Manage your asset accounts and balances.</p>
-          )}
         </div>
 
-        {/* PREMIUM NET WORTH WIDGET */}
-        {!isOverviewCollapsed && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-4 fade-in duration-300">
-            
-            <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 rounded-[2rem] shadow-lg text-white border border-gray-700 flex flex-col justify-between">
-              <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Total Assets</p>
-                <h2 className="text-3xl font-black truncate">
-                  {showBalances ? `৳ ${totalBalance.toLocaleString('en-IN')}` : '৳ ••••••'}
-                </h2>
-              </div>
-              <div className="mt-4 pt-3 border-t border-gray-700">
-                <span className="text-xs text-gray-400 font-medium">All positive accounts combined</span>
-              </div>
-            </div>
+        {/* NATIVE-STYLE HORIZONTAL SCROLL ACTIONS */}
+        <div className="flex overflow-x-auto hide-scrollbar gap-4 pb-2 -mx-4 px-4 md:mx-0 md:px-0">
+          {[
+            { href: "/dashboard/add", icon: Plus, label: "Add Record", color: "bg-blue-600 text-white hover:bg-blue-700 border-transparent" },
+            { href: "/dashboard/add?type=transfer", icon: ArrowRightLeft, label: "Transfer", color: "bg-white text-gray-700 hover:bg-gray-50 border-gray-200" },
+            { href: "/dashboard/wallets", icon: Wallet, label: "Accounts", color: "bg-white text-gray-700 hover:bg-gray-50 border-gray-200" },
+            { href: "/dashboard/credit-cards", icon: CreditCard, label: "Cards", color: "bg-white text-gray-700 hover:bg-gray-50 border-gray-200" }
+          ].map((action, idx) => (
+            <Link key={idx} href={action.href} className={`flex-shrink-0 flex items-center gap-2.5 px-6 py-3.5 rounded-2xl border font-bold shadow-sm transition-transform active:scale-95 ${action.color}`}>
+              <action.icon className="w-4 h-4" />
+              <span className="text-sm">{action.label}</span>
+            </Link>
+          ))}
+        </div>
 
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
-              <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Cash
-                </p>
-                <h3 className="text-2xl font-black text-emerald-600 truncate">
-                  {showBalances ? `৳ ${sumWallets(cashWallets).toLocaleString('en-IN')}` : '৳ ••••••'}
-                </h3>
-              </div>
-              <div className="mt-4 pt-3 border-t border-gray-50 flex flex-col gap-1.5">
-                {cashWallets.length === 0 ? <span className="text-xs text-gray-400">No cash accounts</span> : null}
-                {cashWallets.map(w => (
-                  <div key={w.id} className="flex justify-between text-xs items-center">
-                    <span className="text-gray-500 font-medium truncate pr-2 flex items-center gap-1">
-                      {w.isLegacy && <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-400" title="Unregistered Account">⚠️</span>}
-                      {w.name}
-                    </span>
-                    <span className="text-gray-900 font-bold">{showBalances ? `৳ ${w.currentBalance.toLocaleString('en-IN')}` : '••••'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
-              <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span> Bank
-                </p>
-                <h3 className="text-2xl font-black text-blue-600 truncate">
-                  {showBalances ? `৳ ${sumWallets(bankWallets).toLocaleString('en-IN')}` : '৳ ••••••'}
-                </h3>
-              </div>
-              <div className="mt-4 pt-3 border-t border-gray-50 flex flex-col gap-1.5">
-                {bankWallets.length === 0 ? <span className="text-xs text-gray-400">No bank accounts</span> : null}
-                {bankWallets.map(w => (
-                  <div key={w.id} className="flex justify-between text-xs items-center">
-                    <span className="text-gray-500 font-medium truncate pr-2">{w.name}</span>
-                    <span className="text-gray-900 font-bold">{showBalances ? `৳ ${w.currentBalance.toLocaleString('en-IN')}` : '••••'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
-              <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-pink-500"></span> Mobile
-                </p>
-                <h3 className="text-2xl font-black text-pink-600 truncate">
-                  {showBalances ? `৳ ${sumWallets(mobileWallets).toLocaleString('en-IN')}` : '৳ ••••••'}
-                </h3>
-              </div>
-              <div className="mt-4 pt-3 border-t border-gray-50 flex flex-col gap-1.5">
-                {mobileWallets.length === 0 ? <span className="text-xs text-gray-400">No mobile accounts</span> : null}
-                {mobileWallets.map(w => (
-                  <div key={w.id} className="flex justify-between text-xs items-center">
-                    <span className="text-gray-500 font-medium truncate pr-2">{w.name}</span>
-                    <span className="text-gray-900 font-bold">{showBalances ? `৳ ${w.currentBalance.toLocaleString('en-IN')}` : '••••'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* TRANSACTIONS LIST WITH FILTER ENGINE */}
-        <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-50 bg-white sticky top-0 z-10 flex flex-col gap-4">
-            
+        {/* CLEAN TRANSACTIONS LEDGER */}
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-50 bg-white sticky top-0 z-10">
             <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-gray-900 text-lg">Recent Activity</h3>
-                {hasActiveFilters && (
-                  <span className="bg-blue-100 text-blue-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Filtered</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setIsFilterExpanded(!isFilterExpanded)} 
-                  className={`p-2.5 rounded-xl transition-all ${isFilterExpanded || hasActiveFilters ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
-                >
-                  <Filter className="w-4 h-4" />
-                </button>
-                <Link href="/dashboard/add" className="hidden md:flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-md transition-all shadow-sm">
-                  <Plus className="w-4 h-4" /> Add Record
-                </Link>
-              </div>
+              <h3 className="font-bold text-gray-900 text-lg">Recent Activity</h3>
+              <button onClick={() => setIsFilterExpanded(!isFilterExpanded)} className={`p-2 rounded-xl transition-colors ${isFilterExpanded || hasActiveFilters ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+                <Filter className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* EXPANDED FILTER PANEL */}
+            {/* INTEGRATED FILTER BAR */}
             {isFilterExpanded && (
-              <div className="animate-in slide-in-from-top-2 fade-in duration-200 bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-4">
-                
-                {/* Search Bar */}
+              <div className="mt-4 pt-4 border-t border-gray-50 space-y-4 animate-in fade-in duration-200">
                 <div className="relative">
-                  <Search className="w-4 h-4 absolute left-4 top-3.5 text-gray-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Search note, category, or account..." 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-10 py-3 text-sm font-medium text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                  />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery("")} className="absolute right-4 top-3.5 text-gray-400 hover:text-gray-600">
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                  <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-xl pl-9 pr-9 py-2.5 text-sm font-medium text-gray-900 outline-none focus:border-blue-500 focus:bg-white transition-all" />
+                  {searchQuery && <button onClick={() => setSearchQuery("")} className="absolute right-3 top-3 text-gray-400"><X className="w-4 h-4" /></button>}
                 </div>
-
-                {/* Dropdown Filters */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Type</label>
-                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-700 outline-none focus:border-blue-500">
-                      <option value="all">All Types</option>
-                      <option value="expense">Expense</option>
-                      <option value="income">Income</option>
-                      <option value="transfer">Transfer</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Account</label>
-                    <select value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-700 outline-none focus:border-blue-500">
-                      <option value="all">All Accounts</option>
-                      {uniqueAccounts.map(acc => <option key={acc as string} value={acc as string}>{acc}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Category</label>
-                    <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-700 outline-none focus:border-blue-500">
-                      <option value="all">All Categories</option>
-                      {uniqueCategories.map(cat => <option key={cat as string} value={cat as string}>{cat}</option>)}
-                    </select>
-                  </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-2 text-xs font-bold text-gray-700 outline-none">
+                    <option value="all">Type</option><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option>
+                  </select>
+                  <select value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-2 text-xs font-bold text-gray-700 outline-none">
+                    <option value="all">Account</option>{uniqueAccounts.map(acc => <option key={acc as string} value={acc as string}>{acc}</option>)}
+                  </select>
+                  <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full bg-gray-50 border border-gray-100 rounded-lg px-2 py-2 text-xs font-bold text-gray-700 outline-none">
+                    <option value="all">Category</option>{uniqueCategories.map(cat => <option key={cat as string} value={cat as string}>{cat}</option>)}
+                  </select>
                 </div>
-
-                {/* Clear Filters Button */}
-                {hasActiveFilters && (
-                  <div className="flex justify-end pt-1">
-                    <button onClick={clearFilters} className="text-xs font-bold text-gray-500 hover:text-gray-900 transition-colors">
-                      Reset Filters
-                    </button>
-                  </div>
-                )}
+                {hasActiveFilters && <button onClick={clearFilters} className="text-[10px] uppercase tracking-widest font-bold text-red-500">Clear All</button>}
               </div>
             )}
           </div>
 
-          <div className="divide-y divide-gray-50 h-[600px] overflow-y-auto">
+          <div className="divide-y divide-gray-50 min-h-[400px]">
             {filteredTransactions.length === 0 ? (
-              <div className="p-12 text-center flex flex-col items-center justify-center h-full">
-                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                  {hasActiveFilters ? <Search className="w-8 h-8 text-gray-300" /> : <Receipt className="w-8 h-8 text-gray-300" />}
-                </div>
-                <p className="text-gray-900 font-bold text-lg">
-                  {hasActiveFilters ? "No matches found" : "No Recent Activity"}
-                </p>
-                <p className="text-gray-500 font-medium mt-1">
-                  {hasActiveFilters ? "Try adjusting your search or filters." : "Your logged transactions will appear here."}
-                </p>
-                {hasActiveFilters && (
-                  <button onClick={clearFilters} className="mt-4 px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-lg text-sm hover:bg-blue-100 transition-colors">
-                    Clear Filters
-                  </button>
-                )}
+              <div className="p-12 text-center text-gray-400">
+                <Receipt className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                <p className="font-medium text-sm">No activity found.</p>
               </div>
             ) : (
               filteredTransactions.map((txn) => (
-                <div key={txn.id} className="p-5 flex justify-between items-center hover:bg-gray-50 transition-colors group">
+                <div key={txn.id} className="p-4 sm:p-6 flex justify-between items-center hover:bg-gray-50/50 transition-colors group">
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${
-                      txn.type === 'income' ? 'bg-green-50 text-green-600 border border-green-100' : 
-                      txn.type === 'transfer' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 
-                      'bg-red-50 text-red-600 border border-red-100'
-                    }`}>
-                      {txn.type === 'income' ? <ArrowDownLeft className="w-5 h-5" /> : 
-                       txn.type === 'transfer' ? <ArrowRightLeft className="w-5 h-5" /> : 
-                       <ArrowUpRight className="w-5 h-5" />}
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-50 border border-gray-100 shrink-0 text-gray-600">
+                      {txn.type === 'income' ? <ArrowDownLeft className="w-4 h-4 text-emerald-500" /> : 
+                       txn.type === 'transfer' ? <ArrowRightLeft className="w-4 h-4 text-blue-500" /> : 
+                       <ArrowUpRight className="w-4 h-4" />}
                     </div>
                     <div>
-                      <p className="font-bold text-gray-900 text-base">
+                      <p className="font-bold text-gray-900 text-sm">
                         {txn.category} 
-                        {txn.description && <span className="text-gray-400 font-medium text-sm ml-1.5 hidden sm:inline">- {txn.description}</span>}
+                        {txn.description && <span className="text-gray-400 font-normal ml-1.5">- {txn.description}</span>}
                       </p>
-                      <p className="text-xs text-gray-500 font-medium mt-0.5">
-                        {txn.type === 'transfer' ? (
-                          <span className="text-blue-600 font-bold">{txn.fromAccount} → {txn.toAccount}</span>
-                        ) : (
-                          <span className="text-gray-600 font-bold">{txn.account}</span>
-                        )} 
-                        <span className="mx-1.5 text-gray-300">•</span> 
+                      <p className="text-[11px] text-gray-500 font-medium mt-0.5">
+                        {txn.type === 'transfer' ? `${txn.fromAccount} → ${txn.toAccount}` : txn.account} 
+                        <span className="mx-1.5 opacity-50">•</span> 
                         {new Date((txn.date as any)?.toDate ? (txn.date as any).toDate() : txn.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 md:gap-6">
-                    <div className="text-right">
-                      <p className={`text-lg font-black ${txn.type === 'income' ? 'text-green-600' : txn.type === 'transfer' ? 'text-blue-600' : 'text-gray-900'}`}>
-                        {txn.type === 'income' ? '+' : txn.type === 'transfer' ? '' : '-'} {showBalances ? `৳ ${Number(txn.amount).toLocaleString('en-IN')}` : '••••'}
-                      </p>
-                    </div>
-                    <div className="flex gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setSelectedRecord(txn as any)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit Record">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => txn.id && handleDeleteRecord(txn)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Record">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                  <div className="flex items-center gap-3">
+                    <p className={`text-sm md:text-base font-bold ${txn.type === 'income' ? 'text-emerald-600' : 'text-gray-900'}`}>
+                      {txn.type === 'income' ? '+' : txn.type === 'transfer' ? '' : '-'} {showBalances ? `৳ ${Number(txn.amount).toLocaleString('en-IN')}` : '••••'}
+                    </p>
+                    <div className="flex opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity gap-1">
+                      <button onClick={() => setSelectedRecord(txn as any)} className="p-1.5 text-gray-400 hover:text-blue-600" title="Edit"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => txn.id && handleDeleteRecord(txn)} className="p-1.5 text-gray-400 hover:text-red-600" title="Delete"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
                 </div>
@@ -534,24 +320,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* FLOATING ACTION BUTTON (MOBILE) */}
-        <Link 
-          href="/dashboard/add" 
-          className="md:hidden fixed bottom-24 right-4 w-14 h-14 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(37,99,235,0.4)] hover:bg-blue-700 active:scale-90 transition-all z-40"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-        >
-          <Plus className="w-6 h-6" />
-        </Link>
-
-        {/* --- THE REVERSAL ENGINE MODAL --- */}
-        <EditRecordModal 
-          isOpen={!!selectedRecord} 
-          onClose={() => setSelectedRecord(null)}
-          onSuccess={() => setSelectedRecord(null)}
-          record={selectedRecord as any}
-          wallets={modalWallets}
-        />
-
+        <EditRecordModal isOpen={!!selectedRecord} onClose={() => setSelectedRecord(null)} onSuccess={() => setSelectedRecord(null)} record={selectedRecord as any} wallets={modalWallets} />
       </div>
     </div>
   );
