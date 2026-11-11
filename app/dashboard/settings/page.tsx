@@ -4,9 +4,10 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth/AuthContext";
 import { updateProfile, updatePassword, signOut, getAuth } from "firebase/auth"; 
 import { useRouter } from "next/navigation"; 
-import Link from "next/link"; // <-- Added Link for routing
+import Link from "next/link"; 
 import { db } from "@/lib/firebase/config"; 
-import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore"; 
+import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs } from "firebase/firestore"; 
+import { Download, Loader2, Shield, CheckCircle2, AlertCircle } from "lucide-react"; // Added Icons for the Export engine
 
 interface PaymentMethod {
   id: string;
@@ -30,10 +31,13 @@ export default function SettingsPage() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [newMethodName, setNewMethodName] = useState("");
   const [newMethodBalance, setNewMethodBalance] = useState(""); 
-  const [newMethodType, setNewMethodType] = useState("auto"); // Explicit Type
+  const [newMethodType, setNewMethodType] = useState("auto");
   const [loadingMethod, setLoadingMethod] = useState(false);
 
-  // 1. Pre-fill name and fetch True Wallets
+  // Export Engine States
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
   useEffect(() => {
     if (!user) return;
     
@@ -102,7 +106,7 @@ export default function SettingsPage() {
         userId: user.uid,
         name: newMethodName.trim(),
         balance: parseFloat(newMethodBalance) || 0, 
-        type: newMethodType, // Save explicit category
+        type: newMethodType, 
         createdAt: serverTimestamp()
       });
       setNewMethodName(""); 
@@ -132,6 +136,67 @@ export default function SettingsPage() {
       router.push("/"); 
     } catch (error) {
       setMessage({ type: "error", text: "Failed to sign out. Please try again." });
+    }
+  };
+
+  // --- THE CSV EXPORT ENGINE ---
+  const handleExportCSV = async () => {
+    if (!user) return;
+    setIsExporting(true);
+    setExportMessage(null);
+
+    try {
+      const qTxn = query(collection(db, "transactions"), where("userId", "==", user.uid));
+      const snapshot = await getDocs(qTxn);
+
+      if (snapshot.empty) {
+        setExportMessage({ type: 'error', text: "No transactions found to export." });
+        setIsExporting(false);
+        return;
+      }
+
+      const rows = [
+        ["Date", "Type", "Category", "Amount", "Account", "Transfer To", "Note"]
+      ];
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        let dateStr = "";
+        if (data.date) {
+          dateStr = typeof data.date === 'string' 
+            ? data.date.split('T')[0] 
+            : data.date.toDate().toISOString().split('T')[0];
+        }
+
+        const type = data.type ? data.type.toUpperCase() : "";
+        const category = data.category || "";
+        const amount = data.amount || 0;
+        const account = data.account || data.fromAccount || "";
+        const toAccount = data.toAccount || "";
+        const note = data.description ? `"${data.description.replace(/"/g, '""')}"` : ""; 
+
+        rows.push([dateStr, type, category, amount.toString(), account, toAccount, note]);
+      });
+
+      const csvContent = rows.map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement("a");
+      link.href = url;
+      const today = new Date().toISOString().split('T')[0];
+      link.setAttribute("download", `TekaPoysha_Ledger_${today}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setExportMessage({ type: 'success', text: "Export complete! Check your downloads folder." });
+    } catch (error) {
+      console.error("Export failed:", error);
+      setExportMessage({ type: 'error', text: "Failed to generate CSV file. Please try again." });
+    } finally {
+      setIsExporting(false);
+      setTimeout(() => setExportMessage(null), 5000);
     }
   };
 
@@ -200,6 +265,50 @@ export default function SettingsPage() {
             </form>
           </div>
 
+          {/* DATA & PRIVACY SECTION (CSV EXPORT) */}
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+            <h2 className="text-xl font-bold text-gray-900 mb-6 border-b pb-4">Data Management</h2>
+            
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Download className="w-5 h-5 text-gray-700" />
+                  <h4 className="font-bold text-gray-900">Export Ledger (CSV)</h4>
+                </div>
+                <p className="text-sm text-gray-500 font-medium max-w-md leading-relaxed">
+                  Download your entire transaction history. Compatible with Microsoft Excel and Google Sheets.
+                </p>
+              </div>
+              <button 
+                onClick={handleExportCSV}
+                disabled={isExporting}
+                className="shrink-0 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Download CSV'}
+              </button>
+            </div>
+            
+            {exportMessage && (
+              <div className={`mt-4 p-3 rounded-xl flex items-center gap-2 text-sm font-bold animate-in fade-in ${
+                exportMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
+              }`}>
+                {exportMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                {exportMessage.text}
+              </div>
+            )}
+
+            <div className="mt-6 pt-6 border-t border-gray-50 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Shield className="w-5 h-5 text-emerald-600" />
+                  <h4 className="font-bold text-gray-900 text-sm">Offline Persistence</h4>
+                </div>
+                <p className="text-xs text-gray-500 font-medium">Your data is cached locally for zero-latency access.</p>
+              </div>
+              <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest rounded-full">Active</span>
+            </div>
+          </div>
+
           {/* PREMIUM WALLET MANAGEMENT CARD */}
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-2">
@@ -208,7 +317,6 @@ export default function SettingsPage() {
             </div>
             <p className="text-sm text-gray-500 mb-6 border-b pb-4">Create wallets for your physical cash, bKash, and bank accounts to track exact real-time balances.</p>
             
-            {/* Display Active True Wallets */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
               {paymentMethods.length === 0 && (
                 <div className="col-span-full p-4 border-2 border-dashed border-gray-200 rounded-2xl text-center text-gray-400 font-medium">
@@ -239,7 +347,6 @@ export default function SettingsPage() {
               ))}
             </div>
 
-            {/* Add New True Wallet Input */}
             <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100">
               <h3 className="text-sm font-bold text-blue-900 mb-4">Create New Wallet</h3>
               <form onSubmit={handleAddMethod} className="flex flex-col gap-3">
@@ -288,7 +395,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* NEW: CREDIT CARD MANAGEMENT HUB LINK */}
+          {/* CREDIT CARD MANAGEMENT HUB LINK */}
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div>
               <div className="flex items-center gap-2 mb-2">

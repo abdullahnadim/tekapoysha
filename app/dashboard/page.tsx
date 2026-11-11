@@ -11,7 +11,7 @@ import { Transaction } from "@/types";
 import EditRecordModal from "@/components/Transactions/EditRecordModal";
 import { 
   Edit2, Trash2, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, 
-  Eye, EyeOff, Plus, ChevronUp, ChevronDown, Receipt, Search, Filter, X 
+  Eye, EyeOff, Plus, ChevronUp, ChevronDown, Receipt, Search, Filter, X, CreditCard 
 } from "lucide-react";
 
 interface PaymentMethod {
@@ -178,6 +178,8 @@ export default function Dashboard() {
   }, [baseWallets, transactions, creditCards]);
 
   const sumWallets = (arr: ComputedWallet[]) => arr.reduce((sum, w) => sum + w.currentBalance, 0);
+  // NEW: Sum Credit Cards
+  const sumCreditCards = () => creditCards.reduce((sum, c) => sum + (c.currentBalance || 0), 0);
 
   const modalWallets = [
     ...baseWallets.map(w => ({ id: w.id, name: w.name, isCreditCard: false })),
@@ -217,7 +219,7 @@ export default function Dashboard() {
     }
   };
 
-  // --- NEW: THE FILTER ENGINE (ZERO-LATENCY) ---
+  // --- THE FILTER ENGINE (ZERO-LATENCY) ---
   const filteredTransactions = useMemo(() => {
     return transactions.filter(txn => {
       // 1. Filter by Search Query
@@ -300,9 +302,9 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* PREMIUM NET WORTH WIDGET */}
+        {/* PREMIUM NET WORTH WIDGET & CARDS OVERVIEW */}
         {!isOverviewCollapsed && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 animate-in slide-in-from-top-4 fade-in duration-300">
             
             <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 rounded-[2rem] shadow-lg text-white border border-gray-700 flex flex-col justify-between">
               <div>
@@ -379,6 +381,32 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* RESTORED: CREDIT CARDS WIDGET */}
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between">
+              <div>
+                <div className="flex justify-between items-start">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500"></span> Cards
+                  </p>
+                  <Link href="/dashboard/credit-cards" className="text-gray-400 hover:text-orange-600 transition-colors" title="Manage Credit Cards">
+                    <Edit2 className="w-4 h-4" />
+                  </Link>
+                </div>
+                <h3 className="text-2xl font-black text-orange-600 truncate">
+                  {showBalances ? `৳ ${sumCreditCards().toLocaleString('en-IN')}` : '৳ ••••••'}
+                </h3>
+              </div>
+              <div className="mt-4 pt-3 border-t border-gray-50 flex flex-col gap-1.5">
+                {creditCards.length === 0 ? <span className="text-xs text-gray-400">No active cards</span> : null}
+                {creditCards.map(c => (
+                  <div key={c.id} className="flex justify-between text-xs items-center">
+                    <span className="text-gray-500 font-medium truncate pr-2">{c.cardName}</span>
+                    <span className="text-gray-900 font-bold">{showBalances ? `৳ ${(c.currentBalance || 0).toLocaleString('en-IN')}` : '••••'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -400,6 +428,10 @@ export default function Dashboard() {
                 >
                   <Filter className="w-4 h-4" />
                 </button>
+                {/* RESTORED: QUICK LINK TO CREDIT CARDS */}
+                <Link href="/dashboard/credit-cards" className="hidden sm:flex items-center gap-2 bg-orange-50 text-orange-600 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-100 hover:shadow-md transition-all shadow-sm">
+                  <CreditCard className="w-4 h-4" /> Cards
+                </Link>
                 <Link href="/dashboard/add" className="hidden md:flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-md transition-all shadow-sm">
                   <Plus className="w-4 h-4" /> Add Record
                 </Link>
@@ -500,7 +532,11 @@ export default function Dashboard() {
                     <div>
                       <p className="font-bold text-gray-900 text-base">
                         {txn.category} 
-                        {txn.description && <span className="text-gray-400 font-medium text-sm ml-1.5 hidden sm:inline">- {txn.description}</span>}
+                        {txn.description && (
+                          <span className="text-gray-400 font-medium text-sm ml-1.5 hidden sm:inline">
+                            - {txn.description}
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-gray-500 font-medium mt-0.5">
                         {txn.type === 'transfer' ? (
