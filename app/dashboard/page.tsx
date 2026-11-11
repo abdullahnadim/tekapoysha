@@ -199,11 +199,14 @@ export default function Dashboard() {
         }
       };
 
-      if (txn.type === 'expense') await applyReverse(txn.account!, -txn.amount);
-      else if (txn.type === 'income') await applyReverse(txn.account!, txn.amount);
+      // Safely convert amount to a strict Number for TypeScript
+      const numAmount = Number(txn.amount);
+
+      if (txn.type === 'expense') await applyReverse(txn.account!, -numAmount);
+      else if (txn.type === 'income') await applyReverse(txn.account!, numAmount);
       else if (txn.type === 'transfer') {
-        await applyReverse(txn.fromAccount!, -txn.amount);
-        await applyReverse(txn.toAccount!, txn.amount, true);
+        await applyReverse(txn.fromAccount!, -numAmount);
+        await applyReverse(txn.toAccount!, numAmount, true);
       }
 
       await deleteDoc(doc(db, "transactions", txn.id!));
