@@ -19,5 +19,33 @@
       "sizes": "512x512",
       "type": "image/png"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Transaction",
+      "short_name": "Add Record",
+      "description": "Log a new income or expense",
+      "url": "/dashboard/add?ref=shortcut",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "View Subscriptions",
+      "short_name": "Subscriptions",
+      "description": "Check your fixed overhead",
+      "url": "/dashboard/subscriptions?ref=shortcut",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

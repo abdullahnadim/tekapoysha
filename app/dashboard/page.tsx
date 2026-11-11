@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation"; 
 import { useAuth } from "@/components/auth/AuthContext";
@@ -11,7 +11,7 @@ import { Transaction } from "@/types";
 import EditRecordModal from "@/components/Transactions/EditRecordModal";
 import { 
   Edit2, Trash2, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, 
-  Eye, EyeOff, Plus, ChevronUp, ChevronDown, Receipt 
+  Eye, EyeOff, Plus, ChevronUp, ChevronDown, Receipt, Search, Filter, X 
 } from "lucide-react";
 
 interface PaymentMethod {
@@ -49,6 +49,13 @@ export default function Dashboard() {
   // UI States
   const [showBalances, setShowBalances] = useState(false); 
   const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(false); 
+
+  // --- NEW: SEARCH & FILTER STATES ---
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [filterType, setFilterType] = useState("all"); // 'all', 'income', 'expense', 'transfer'
+  const [filterAccount, setFilterAccount] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
 
   // 1. Fetch User's Asset Wallets & Credit Cards
   useEffect(() => {
@@ -102,7 +109,6 @@ export default function Dashboard() {
   useEffect(() => {
     const walletsMap: Record<string, ComputedWallet> = {};
     
-    // Initialize map with base asset wallets
     baseWallets.forEach(w => {
       walletsMap[w.name] = { ...w, currentBalance: w.balance };
     });
@@ -114,7 +120,6 @@ export default function Dashboard() {
       }
     };
 
-    // Calculate real-time balances from transactions
     transactions.forEach(txn => {
       const amt = Number(txn.amount);
       if (txn.type === "income" && txn.account) {
@@ -135,14 +140,12 @@ export default function Dashboard() {
       }
     });
 
-    // Smart Sorter
     const cash: ComputedWallet[] = [];
     const bank: ComputedWallet[] = [];
     const mobile: ComputedWallet[] = [];
     let netWorth = 0;
 
     Object.values(walletsMap).forEach(w => {
-      // STRICT FILTER: Do not list Credit Cards in the Asset Wallets view
       if (creditCards.some(cc => cc.cardName === w.name)) return;
 
       netWorth += w.currentBalance;
@@ -176,7 +179,6 @@ export default function Dashboard() {
 
   const sumWallets = (arr: ComputedWallet[]) => arr.reduce((sum, w) => sum + w.currentBalance, 0);
 
-  // Combine wallets for the Edit Modal dropdowns
   const modalWallets = [
     ...baseWallets.map(w => ({ id: w.id, name: w.name, isCreditCard: false })),
     ...creditCards.map(c => ({ id: c.id, name: c.cardName, isCreditCard: true }))
@@ -199,7 +201,6 @@ export default function Dashboard() {
         }
       };
 
-      // Safely convert amount to a strict Number for TypeScript
       const numAmount = Number(txn.amount);
 
       if (txn.type === 'expense') await applyReverse(txn.account!, -numAmount);
@@ -214,6 +215,53 @@ export default function Dashboard() {
       console.error("Error deleting record:", error);
       alert("Failed to delete record.");
     }
+  };
+
+  // --- NEW: THE FILTER ENGINE (ZERO-LATENCY) ---
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(txn => {
+      // 1. Filter by Search Query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const matchesDesc = txn.description?.toLowerCase().includes(query) || false;
+        const matchesCat = txn.category?.toLowerCase().includes(query) || false;
+        const matchesAcc = txn.account?.toLowerCase().includes(query) || txn.fromAccount?.toLowerCase().includes(query) || txn.toAccount?.toLowerCase().includes(query) || false;
+        
+        if (!matchesDesc && !matchesCat && !matchesAcc) return false;
+      }
+
+      // 2. Filter by Type
+      if (filterType !== "all" && txn.type !== filterType) return false;
+
+      // 3. Filter by Category
+      if (filterCategory !== "all" && txn.category !== filterCategory) return false;
+
+      // 4. Filter by Account
+      if (filterAccount !== "all") {
+        if (txn.type === "transfer") {
+          if (txn.fromAccount !== filterAccount && txn.toAccount !== filterAccount) return false;
+        } else {
+          if (txn.account !== filterAccount) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [transactions, searchQuery, filterType, filterCategory, filterAccount]);
+
+  // Extract unique categories and accounts for the dropdowns
+  const uniqueCategories = Array.from(new Set(transactions.map(t => t.category).filter(Boolean)));
+  const uniqueAccounts = Array.from(new Set(
+    transactions.flatMap(t => t.type === 'transfer' ? [t.fromAccount, t.toAccount] : [t.account]).filter(Boolean)
+  ));
+
+  const hasActiveFilters = searchQuery !== "" || filterType !== "all" || filterCategory !== "all" || filterAccount !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setFilterType("all");
+    setFilterCategory("all");
+    setFilterAccount("all");
   };
 
   if (loading) return <LoadingShield text="Loading Dashboard..." />;
@@ -334,41 +382,110 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* --- LINK TO DEDICATED CREDIT CARDS HUB --- */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-[2rem] shadow-md p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-500">
-          <div>
-            <h3 className="text-xl font-bold">Credit Card Management</h3>
-            <p className="text-blue-100 text-sm mt-1">Track utilization, view limits, and manage your credit profiles.</p>
-          </div>
-          <Link 
-            href="/dashboard/credit-cards" 
-            className="w-full md:w-auto px-6 py-3.5 bg-white text-blue-700 font-bold rounded-xl shadow-sm hover:shadow-md hover:bg-blue-50 transition-all text-center whitespace-nowrap"
-          >
-            Manage Cards &rarr;
-          </Link>
-        </div>
-
-        {/* TRANSACTIONS LIST */}
+        {/* TRANSACTIONS LIST WITH FILTER ENGINE */}
         <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-white sticky top-0 z-10">
-            <h3 className="font-bold text-gray-900 text-lg">Recent Activity</h3>
-            <Link href="/dashboard/add" className="hidden md:flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-md transition-all shadow-sm">
-              <Plus className="w-4 h-4" />
-              Add Record
-            </Link>
+          <div className="p-6 border-b border-gray-50 bg-white sticky top-0 z-10 flex flex-col gap-4">
+            
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-gray-900 text-lg">Recent Activity</h3>
+                {hasActiveFilters && (
+                  <span className="bg-blue-100 text-blue-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Filtered</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setIsFilterExpanded(!isFilterExpanded)} 
+                  className={`p-2.5 rounded-xl transition-all ${isFilterExpanded || hasActiveFilters ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  <Filter className="w-4 h-4" />
+                </button>
+                <Link href="/dashboard/add" className="hidden md:flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-md transition-all shadow-sm">
+                  <Plus className="w-4 h-4" /> Add Record
+                </Link>
+              </div>
+            </div>
+
+            {/* EXPANDED FILTER PANEL */}
+            {isFilterExpanded && (
+              <div className="animate-in slide-in-from-top-2 fade-in duration-200 bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-4">
+                
+                {/* Search Bar */}
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-4 top-3.5 text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search note, category, or account..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-10 py-3 text-sm font-medium text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} className="absolute right-4 top-3.5 text-gray-400 hover:text-gray-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Dropdown Filters */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Type</label>
+                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-700 outline-none focus:border-blue-500">
+                      <option value="all">All Types</option>
+                      <option value="expense">Expense</option>
+                      <option value="income">Income</option>
+                      <option value="transfer">Transfer</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Account</label>
+                    <select value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-700 outline-none focus:border-blue-500">
+                      <option value="all">All Accounts</option>
+                      {uniqueAccounts.map(acc => <option key={acc as string} value={acc as string}>{acc}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Category</label>
+                    <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold text-gray-700 outline-none focus:border-blue-500">
+                      <option value="all">All Categories</option>
+                      {uniqueCategories.map(cat => <option key={cat as string} value={cat as string}>{cat}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Clear Filters Button */}
+                {hasActiveFilters && (
+                  <div className="flex justify-end pt-1">
+                    <button onClick={clearFilters} className="text-xs font-bold text-gray-500 hover:text-gray-900 transition-colors">
+                      Reset Filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="divide-y divide-gray-50 h-[600px] overflow-y-auto">
-            {transactions.length === 0 ? (
+            {filteredTransactions.length === 0 ? (
               <div className="p-12 text-center flex flex-col items-center justify-center h-full">
                 <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                  <Receipt className="w-8 h-8 text-gray-300" />
+                  {hasActiveFilters ? <Search className="w-8 h-8 text-gray-300" /> : <Receipt className="w-8 h-8 text-gray-300" />}
                 </div>
-                <p className="text-gray-900 font-bold text-lg">No Recent Activity</p>
-                <p className="text-gray-500 font-medium mt-1">Your logged transactions will appear here.</p>
+                <p className="text-gray-900 font-bold text-lg">
+                  {hasActiveFilters ? "No matches found" : "No Recent Activity"}
+                </p>
+                <p className="text-gray-500 font-medium mt-1">
+                  {hasActiveFilters ? "Try adjusting your search or filters." : "Your logged transactions will appear here."}
+                </p>
+                {hasActiveFilters && (
+                  <button onClick={clearFilters} className="mt-4 px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-lg text-sm hover:bg-blue-100 transition-colors">
+                    Clear Filters
+                  </button>
+                )}
               </div>
             ) : (
-              transactions.map((txn) => (
+              filteredTransactions.map((txn) => (
                 <div key={txn.id} className="p-5 flex justify-between items-center hover:bg-gray-50 transition-colors group">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${
@@ -381,7 +498,10 @@ export default function Dashboard() {
                        <ArrowUpRight className="w-5 h-5" />}
                     </div>
                     <div>
-                      <p className="font-bold text-gray-900 text-base">{txn.category}</p>
+                      <p className="font-bold text-gray-900 text-base">
+                        {txn.category} 
+                        {txn.description && <span className="text-gray-400 font-medium text-sm ml-1.5 hidden sm:inline">- {txn.description}</span>}
+                      </p>
                       <p className="text-xs text-gray-500 font-medium mt-0.5">
                         {txn.type === 'transfer' ? (
                           <span className="text-blue-600 font-bold">{txn.fromAccount} → {txn.toAccount}</span>

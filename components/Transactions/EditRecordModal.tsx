@@ -20,7 +20,7 @@ interface TransactionRecord {
   fromAccount?: string;
   toAccount?: string;
   description: string;
-  date: string;
+  date: any; // Allow Firebase Timestamps
 }
 
 interface EditRecordModalProps {
@@ -56,10 +56,27 @@ export default function EditRecordModal({ isOpen, onClose, onSuccess, record, wa
       setAccount(record.account || '');
       setFromAccount(record.fromAccount || '');
       setToAccount(record.toAccount || '');
-      // Ensure date is formatted for the input type="date" (YYYY-MM-DD)
-      const formattedDate = typeof record.date === 'string' 
-        ? record.date.split('T')[0] 
-        : new Date(record.date).toISOString().split('T')[0];
+      
+      // --- BULLETPROOF DATE PARSER ---
+      let formattedDate = new Date().toISOString().split('T')[0]; // Fallback
+      
+      if (record.date) {
+        if (typeof record.date === 'string') {
+          // Handle ISO strings
+          formattedDate = record.date.split('T')[0];
+        } else if (typeof record.date.toDate === 'function') {
+          // Handle Firebase Timestamps
+          formattedDate = record.date.toDate().toISOString().split('T')[0];
+        } else {
+          // Handle standard JS Date objects
+          try {
+            formattedDate = new Date(record.date).toISOString().split('T')[0];
+          } catch (e) {
+            console.warn("Date parsing failed, falling back to today.");
+          }
+        }
+      }
+      
       setDate(formattedDate);
       setDescription(record.description || '');
       setError('');
@@ -69,14 +86,11 @@ export default function EditRecordModal({ isOpen, onClose, onSuccess, record, wa
   if (!isOpen || !record) return null;
 
   // --- BALANCE ENGINE ---
-  // Safely updates wallet or credit card balances based on the transaction action
   const applyBalanceChange = async (walletName: string, amountChange: number, isTransferToCreditCard = false) => {
     const wallet = wallets.find(w => w.name === walletName);
     if (!wallet) return;
 
     if (wallet.isCreditCard) {
-      // For credit cards, an expense INCREASES the balance (debt). 
-      // If it's a transfer TO a credit card (paying the bill), it DECREASES the debt.
       let finalChange = amountChange;
       if (isTransferToCreditCard) finalChange = -amountChange;
       
@@ -84,10 +98,8 @@ export default function EditRecordModal({ isOpen, onClose, onSuccess, record, wa
         currentBalance: increment(finalChange)
       });
     } else {
-      // For standard bank/cash wallets, expenses DECREASE the balance.
-      // (Assuming you later add a balance field to standard paymentMethods)
       await updateDoc(doc(db, "paymentMethods", wallet.id), {
-        balance: increment(-amountChange) // Minus because the argument assumes amountChange is an expense by default
+        balance: increment(-amountChange) 
       }).catch(() => { /* Silently fail if standard wallets don't track running balances yet */ });
     }
   };
@@ -99,17 +111,15 @@ export default function EditRecordModal({ isOpen, onClose, onSuccess, record, wa
     setError('');
 
     try {
-      // 1. REVERSE THE ORIGINAL BALANCES
       if (record.type === 'expense') {
-        await applyBalanceChange(record.account!, -record.amount); // Negative expense = refund
+        await applyBalanceChange(record.account!, -record.amount); 
       } else if (record.type === 'income') {
-        await applyBalanceChange(record.account!, record.amount); // Reversing income removes it
+        await applyBalanceChange(record.account!, record.amount); 
       } else if (record.type === 'transfer') {
-        await applyBalanceChange(record.fromAccount!, -record.amount); // Refund sender
-        await applyBalanceChange(record.toAccount!, record.amount, true); // Remove from receiver
+        await applyBalanceChange(record.fromAccount!, -record.amount); 
+        await applyBalanceChange(record.toAccount!, record.amount, true); 
       }
 
-      // 2. DELETE RECORD
       await deleteDoc(doc(db, "transactions", record.id));
       
       onSuccess();
